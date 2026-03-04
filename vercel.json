@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/post-due",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/process-retries",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}
