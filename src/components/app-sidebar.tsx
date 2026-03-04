@@ -11,6 +11,17 @@ import {
   LogOut,
   Hash,
   Layers,
+  Sparkles,
+  ImagePlus,
+  Lightbulb,
+  BarChart3,
+  FolderOpen,
+  Kanban,
+  Recycle,
+  FlaskConical,
+  FileText,
+  Users,
+  Key,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -32,19 +43,59 @@ const mainNav = [
   { title: 'Compose', href: '/compose', icon: PenSquare },
   { title: 'Calendar', href: '/calendar', icon: CalendarDays },
   { title: 'Queue', href: '/queue', icon: ListTodo },
+  { title: 'Analytics', href: '/analytics', icon: BarChart3 },
+  { title: 'Media Library', href: '/media', icon: FolderOpen },
 ];
 
 const contentNav = [
   { title: 'Pillars', href: '/settings/pillars', icon: Layers },
   { title: 'Hashtags', href: '/settings/hashtags', icon: Hash },
+  { title: 'Templates', href: '/settings/templates', icon: FileText },
+  { title: 'Pipeline', href: '/pipeline', icon: Kanban },
+];
+
+const aiNav = [
+  { title: 'AI Captions', href: '/ai/captions', icon: Sparkles },
+  { title: 'AI Images', href: '/ai/images', icon: ImagePlus },
+  { title: 'Content Ideas', href: '/ai/ideas', icon: Lightbulb },
+];
+
+const growthNav = [
+  { title: 'A/B Testing', href: '/ab-testing', icon: FlaskConical },
+  { title: 'Evergreen', href: '/evergreen', icon: Recycle },
 ];
 
 const systemNav = [
-  { title: 'Settings', href: '/settings/accounts', icon: Settings },
+  { title: 'Accounts', href: '/settings/accounts', icon: Users },
+  { title: 'API Keys', href: '/settings/general', icon: Key },
 ];
 
-export function AppSidebar() {
+type NavItem = { title: string; href: string; icon: React.ElementType };
+
+function NavGroup({ label, items }: { label: string; items: NavItem[] }) {
   const pathname = usePathname();
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel>{label}</SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarMenu>
+          {items.map((item) => (
+            <SidebarMenuItem key={item.href}>
+              <SidebarMenuButton asChild isActive={pathname === item.href || pathname.startsWith(item.href + '/')}>
+                <Link href={item.href}>
+                  <item.icon className="h-4 w-4" />
+                  <span>{item.title}</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ))}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
+export function AppSidebar() {
   const router = useRouter();
   const supabase = createClient();
 
@@ -68,57 +119,11 @@ export function AppSidebar() {
         </Link>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Main</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {mainNav.map((item) => (
-                <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton asChild isActive={pathname === item.href}>
-                    <Link href={item.href}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-        <SidebarGroup>
-          <SidebarGroupLabel>Content</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {contentNav.map((item) => (
-                <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton asChild isActive={pathname.startsWith(item.href)}>
-                    <Link href={item.href}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-        <SidebarGroup>
-          <SidebarGroupLabel>System</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {systemNav.map((item) => (
-                <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton asChild isActive={pathname.startsWith(item.href)}>
-                    <Link href={item.href}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        <NavGroup label="Main" items={mainNav} />
+        <NavGroup label="Content" items={contentNav} />
+        <NavGroup label="AI" items={aiNav} />
+        <NavGroup label="Growth" items={growthNav} />
+        <NavGroup label="Settings" items={systemNav} />
       </SidebarContent>
       <SidebarFooter className="border-t p-4">
         <SidebarMenu>
