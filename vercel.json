@@ -2,11 +2,11 @@
   "crons": [
     {
       "path": "/api/cron/post-due",
-      "schedule": "0 * * * *"
+      "schedule": "0 0 * * *"
     },
     {
       "path": "/api/cron/process-retries",
-      "schedule": "0 */6 * * *"
+      "schedule": "0 12 * * *"
     }
   ]
 }
