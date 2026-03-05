@@ -1,17 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const GRAPH_BASE = 'https://graph.facebook.com/v22.0';
-
 /**
- * Instagram OAuth callback — handles the Facebook Login redirect.
+ * Instagram OAuth callback — Instagram Direct Login flow.
  *
  * Flow:
- * 1. Exchange code for short-lived user token
- * 2. Exchange short-lived for long-lived user token (60 days)
- * 3. Get user's Facebook Pages
- * 4. For each Page, get linked Instagram Business Account
- * 5. Store accounts in Supabase with refresh capability
+ * 1. Exchange code for short-lived token via graph.instagram.com
+ * 2. Exchange for long-lived token (60 days)
+ * 3. Get user profile (username, account type, etc.)
+ * 4. Store in Supabase with token_expires_at for auto-refresh
  */
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get('code');
@@ -29,55 +26,59 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const appId = process.env.META_APP_ID!;
-  const appSecret = process.env.META_APP_SECRET!;
+  const appId = process.env.INSTAGRAM_APP_ID!;
+  const appSecret = process.env.INSTAGRAM_APP_SECRET!;
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://blais-social-engine.vercel.app').trim();
   const redirectUri = `${appUrl}/api/auth/instagram/callback`;
 
   try {
     // Step 1: Exchange code for short-lived token
-    const tokenUrl = new URL(`${GRAPH_BASE}/oauth/access_token`);
-    tokenUrl.searchParams.set('client_id', appId);
-    tokenUrl.searchParams.set('redirect_uri', redirectUri);
-    tokenUrl.searchParams.set('client_secret', appSecret);
-    tokenUrl.searchParams.set('code', code);
+    const tokenRes = await fetch('https://graph.instagram.com/oauth/access_token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: appId,
+        client_secret: appSecret,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri,
+        code: code.replace(/#_$/, ''), // Instagram appends #_ to the code
+      }),
+    });
 
-    const tokenRes = await fetch(tokenUrl.toString());
     const tokenData = await tokenRes.json();
 
     if (!tokenData.access_token) {
-      console.error('Token exchange failed:', tokenData);
+      console.error('Instagram token exchange failed:', tokenData);
       return NextResponse.redirect(
-        new URL('/settings/accounts?error=token_exchange_failed', req.url)
+        new URL(`/settings/accounts?error=token_exchange_failed`, req.url)
       );
     }
+
+    const shortToken = tokenData.access_token;
+    const igUserId = tokenData.user_id?.toString();
 
     // Step 2: Exchange for long-lived token (60 days)
-    const longLivedUrl = new URL(`${GRAPH_BASE}/oauth/access_token`);
-    longLivedUrl.searchParams.set('grant_type', 'fb_exchange_token');
-    longLivedUrl.searchParams.set('client_id', appId);
-    longLivedUrl.searchParams.set('client_secret', appSecret);
-    longLivedUrl.searchParams.set('fb_exchange_token', tokenData.access_token);
-
-    const llRes = await fetch(longLivedUrl.toString());
+    const llRes = await fetch(
+      `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${appSecret}&access_token=${shortToken}`
+    );
     const llData = await llRes.json();
 
-    const longLivedToken = llData.access_token || tokenData.access_token;
+    const longLivedToken = llData.access_token || shortToken;
     const expiresIn = llData.expires_in || 5184000; // default 60 days
+    const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
 
-    // Step 3: Get user's Facebook Pages
-    const pagesRes = await fetch(
-      `${GRAPH_BASE}/me/accounts?fields=id,name,access_token,instagram_business_account{id,name,username,profile_picture_url}&access_token=${longLivedToken}`
+    // Step 3: Get user profile
+    const profileRes = await fetch(
+      `https://graph.instagram.com/v22.0/me?fields=user_id,username,name,account_type,profile_picture_url&access_token=${longLivedToken}`
     );
-    const pagesData = await pagesRes.json();
+    const profile = await profileRes.json();
 
-    if (!pagesData.data?.length) {
-      return NextResponse.redirect(
-        new URL('/settings/accounts?error=no_pages', req.url)
-      );
-    }
+    const username = profile.username || `user_${igUserId}`;
+    const displayName = profile.name || username;
+    const platformUserId = profile.user_id?.toString() || igUserId;
+    const avatarUrl = profile.profile_picture_url || null;
 
-    // Supabase admin client
+    // Step 4: Store in Supabase
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -93,79 +94,42 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const connectedAccounts: string[] = [];
-    const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+    // Check if this account already exists
+    const { data: existing } = await supabase
+      .from('social_accounts')
+      .select('id')
+      .eq('platform', 'instagram')
+      .eq('platform_user_id', platformUserId)
+      .single();
 
-    for (const page of pagesData.data) {
-      const igAccount = page.instagram_business_account;
+    const accountData = {
+      access_token: longLivedToken,
+      refresh_token: null, // Instagram Login uses ig_refresh_token endpoint instead
+      token_expires_at: tokenExpiresAt,
+      username,
+      display_name: displayName,
+      avatar_url: avatarUrl,
+      is_active: true,
+      meta: {
+        instagram_app_id: appId,
+        account_type: profile.account_type,
+        auth_method: 'instagram_login',
+      },
+    };
 
-      // Save Facebook Page
-      const { data: existingFb } = await supabase
-        .from('social_accounts')
-        .select('id')
-        .eq('platform', 'facebook')
-        .eq('platform_user_id', page.id)
-        .single();
-
-      const fbData = {
-        access_token: page.access_token, // Page tokens from long-lived user tokens are long-lived
-        refresh_token: longLivedToken, // Store user token as refresh — can re-fetch page tokens
-        token_expires_at: tokenExpiresAt,
-        username: page.name,
-        display_name: page.name,
-        is_active: true,
-        meta: { app_id: appId, page_id: page.id },
-      };
-
-      if (existingFb) {
-        await supabase.from('social_accounts').update(fbData).eq('id', existingFb.id);
-      } else {
-        await supabase.from('social_accounts').insert({
-          user_id: userId,
-          platform: 'facebook' as const,
-          platform_user_id: page.id,
-          ...fbData,
-        });
-      }
-      connectedAccounts.push(`FB: ${page.name}`);
-
-      // Save Instagram Business Account (if linked)
-      if (igAccount) {
-        const { data: existingIg } = await supabase
-          .from('social_accounts')
-          .select('id')
-          .eq('platform', 'instagram')
-          .eq('platform_user_id', igAccount.id)
-          .single();
-
-        const igData = {
-          access_token: page.access_token, // IG uses the page token
-          refresh_token: longLivedToken,
-          token_expires_at: tokenExpiresAt,
-          username: igAccount.username || igAccount.name,
-          display_name: igAccount.name || igAccount.username,
-          avatar_url: igAccount.profile_picture_url || null,
-          is_active: true,
-          meta: { app_id: appId, page_id: page.id, ig_user_id: igAccount.id },
-        };
-
-        if (existingIg) {
-          await supabase.from('social_accounts').update(igData).eq('id', existingIg.id);
-        } else {
-          await supabase.from('social_accounts').insert({
-            user_id: userId,
-            platform: 'instagram' as const,
-            platform_user_id: igAccount.id,
-            ...igData,
-          });
-        }
-        connectedAccounts.push(`IG: @${igAccount.username || igAccount.name}`);
-      }
+    if (existing) {
+      await supabase.from('social_accounts').update(accountData).eq('id', existing.id);
+    } else {
+      await supabase.from('social_accounts').insert({
+        user_id: userId,
+        platform: 'instagram' as const,
+        platform_user_id: platformUserId,
+        ...accountData,
+      });
     }
 
-    const summary = encodeURIComponent(connectedAccounts.join(', '));
     return NextResponse.redirect(
-      new URL(`/settings/accounts?success=instagram&connected=${summary}`, req.url)
+      new URL(`/settings/accounts?success=instagram&channel=${encodeURIComponent('@' + username)}`, req.url)
     );
   } catch (err) {
     console.error('Instagram OAuth error:', err);

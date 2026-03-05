@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { refreshMetaToken, tokenNeedsRefresh } from '@/lib/meta/token-refresh';
+import { refreshAccountToken, tokenNeedsRefresh } from '@/lib/meta/token-refresh';
 
 /**
  * POST /api/auth/refresh — Manually refresh a Meta token for an account.
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = await refreshMetaToken(account.access_token);
+    const result = await refreshAccountToken(account.access_token, account.meta);
 
     const tokenExpiresAt = new Date(Date.now() + result.expires_in * 1000).toISOString();
 
@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
     if (!tokenNeedsRefresh(account.token_expires_at)) continue;
 
     try {
-      const result = await refreshMetaToken(account.access_token);
+      const result = await refreshAccountToken(account.access_token, account.meta);
       const tokenExpiresAt = new Date(Date.now() + result.expires_in * 1000).toISOString();
 
       await supabase.from('social_accounts').update({

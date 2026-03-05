@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { publishInstagramPost } from '@/lib/posters/instagram';
 import { publishFacebookPost } from '@/lib/posters/facebook';
-import { refreshMetaToken, tokenNeedsRefresh } from '@/lib/meta/token-refresh';
+import { refreshAccountToken, tokenNeedsRefresh } from '@/lib/meta/token-refresh';
 
 export const maxDuration = 60;
 
@@ -12,7 +12,7 @@ export const maxDuration = 60;
  * Returns the (possibly refreshed) access token.
  */
 async function ensureFreshToken(
-  account: { id: string; platform: string; access_token: string; token_expires_at: string | null },
+  account: { id: string; platform: string; access_token: string; token_expires_at: string | null; meta?: Record<string, unknown> | null },
   supabase: ReturnType<typeof createAdminClient>
 ): Promise<string> {
   // Only Meta platforms need token refresh
@@ -25,15 +25,9 @@ async function ensureFreshToken(
     return account.access_token;
   }
 
-  // Skip refresh if no app credentials configured (use token as-is)
-  if (!process.env.META_APP_ID || !process.env.META_APP_SECRET) {
-    console.warn(`[post-due] No META_APP_ID/SECRET — cannot refresh token for account ${account.id}`);
-    return account.access_token;
-  }
-
   try {
     console.log(`[post-due] Refreshing token for account ${account.id} (${account.platform})`);
-    const result = await refreshMetaToken(account.access_token);
+    const result = await refreshAccountToken(account.access_token, account.meta);
     const tokenExpiresAt = new Date(Date.now() + result.expires_in * 1000).toISOString();
 
     // Update the stored token

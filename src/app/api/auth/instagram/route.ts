@@ -1,16 +1,15 @@
 import { NextResponse } from 'next/server';
 
 /**
- * Initiates Facebook Login OAuth flow for Instagram Business accounts.
- * Instagram Graph API uses Facebook OAuth — NOT the old Instagram Basic Display API.
+ * Initiates Instagram Business Login (direct Instagram OAuth).
+ * Uses the Instagram Platform API — NOT Facebook Login.
  *
- * Required env: META_APP_ID
- * Redirect: /api/auth/instagram/callback
+ * Required env: INSTAGRAM_APP_ID
  */
 export async function GET() {
-  const clientId = process.env.META_APP_ID;
+  const clientId = process.env.INSTAGRAM_APP_ID;
   if (!clientId) {
-    return NextResponse.json({ error: 'META_APP_ID not configured' }, { status: 500 });
+    return NextResponse.json({ error: 'INSTAGRAM_APP_ID not configured' }, { status: 500 });
   }
 
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://blais-social-engine.vercel.app').trim();
@@ -21,16 +20,15 @@ export async function GET() {
     'instagram_business_content_publish',
     'instagram_business_manage_comments',
     'instagram_business_manage_messages',
-    'pages_show_list',
-    'pages_read_engagement',
-    'business_management',
   ].join(',');
 
-  const url = new URL('https://www.facebook.com/v22.0/dialog/oauth');
+  const url = new URL('https://www.instagram.com/oauth/authorize');
   url.searchParams.set('client_id', clientId);
   url.searchParams.set('redirect_uri', redirectUri);
   url.searchParams.set('scope', scopes);
   url.searchParams.set('response_type', 'code');
+  url.searchParams.set('enable_fb_login', '0');
+  url.searchParams.set('force_authentication', '1');
 
   return NextResponse.redirect(url.toString());
 }

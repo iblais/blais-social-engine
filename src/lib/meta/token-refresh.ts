@@ -8,10 +8,31 @@ interface TokenRefreshResult {
 }
 
 /**
- * Exchange a short-lived Meta token for a long-lived one (~60 days),
- * OR refresh an existing long-lived token for a new 60-day token.
- *
- * Works for both Instagram and Facebook tokens.
+ * Refresh an Instagram Login long-lived token.
+ * Uses the Instagram Platform API refresh endpoint.
+ * Tokens must be at least 24 hours old and not expired to refresh.
+ */
+export async function refreshInstagramToken(currentToken: string): Promise<TokenRefreshResult> {
+  const res = await fetch(
+    `https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=${currentToken}`
+  );
+  const data = await res.json();
+
+  if (!res.ok || data.error) {
+    throw new Error(
+      `Instagram token refresh failed: ${data.error?.message || res.statusText}`
+    );
+  }
+
+  return {
+    access_token: data.access_token,
+    token_type: data.token_type || 'bearer',
+    expires_in: data.expires_in || 5184000,
+  };
+}
+
+/**
+ * Refresh a Meta/Facebook long-lived token.
  * Requires META_APP_ID and META_APP_SECRET env vars.
  */
 export async function refreshMetaToken(currentToken: string): Promise<TokenRefreshResult> {
@@ -19,7 +40,7 @@ export async function refreshMetaToken(currentToken: string): Promise<TokenRefre
   const appSecret = process.env.META_APP_SECRET;
 
   if (!appId || !appSecret) {
-    throw new Error('META_APP_ID and META_APP_SECRET are required for token refresh');
+    throw new Error('META_APP_ID and META_APP_SECRET are required for Meta token refresh');
   }
 
   const url = new URL(`${GRAPH_BASE}/oauth/access_token`);
@@ -45,37 +66,20 @@ export async function refreshMetaToken(currentToken: string): Promise<TokenRefre
 }
 
 /**
- * Debug/inspect a Meta token to check if it's valid and when it expires.
+ * Smart refresh — detects auth method from account meta and uses correct endpoint.
  */
-export async function debugMetaToken(token: string): Promise<{
-  is_valid: boolean;
-  expires_at: number; // unix timestamp
-  scopes: string[];
-  app_id: string;
-  error?: string;
-}> {
-  const appId = process.env.META_APP_ID;
-  const appSecret = process.env.META_APP_SECRET;
+export async function refreshAccountToken(
+  currentToken: string,
+  meta?: Record<string, unknown> | null
+): Promise<TokenRefreshResult> {
+  const authMethod = meta?.auth_method;
 
-  if (!appId || !appSecret) {
-    throw new Error('META_APP_ID and META_APP_SECRET are required');
+  if (authMethod === 'instagram_login') {
+    return refreshInstagramToken(currentToken);
   }
 
-  const url = `${GRAPH_BASE}/debug_token?input_token=${token}&access_token=${appId}|${appSecret}`;
-  const res = await fetch(url);
-  const data = await res.json();
-
-  if (data.error) {
-    return { is_valid: false, expires_at: 0, scopes: [], app_id: '', error: data.error.message };
-  }
-
-  const info = data.data;
-  return {
-    is_valid: info.is_valid,
-    expires_at: info.expires_at || 0,
-    scopes: info.scopes || [],
-    app_id: info.app_id || '',
-  };
+  // Default to Meta/Facebook token refresh
+  return refreshMetaToken(currentToken);
 }
 
 /**
