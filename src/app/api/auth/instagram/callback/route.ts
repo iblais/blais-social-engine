@@ -31,7 +31,8 @@ export async function GET(req: NextRequest) {
 
   const appId = process.env.META_APP_ID!;
   const appSecret = process.env.META_APP_SECRET!;
-  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL || 'https://blais-social-engine.vercel.app'}/api/auth/instagram/callback`;
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://blais-social-engine.vercel.app').trim();
+  const redirectUri = `${appUrl}/api/auth/instagram/callback`;
 
   try {
     // Step 1: Exchange code for short-lived token

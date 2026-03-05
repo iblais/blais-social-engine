@@ -13,7 +13,8 @@ export async function GET() {
     return NextResponse.json({ error: 'META_APP_ID not configured' }, { status: 500 });
   }
 
-  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL || 'https://blais-social-engine.vercel.app'}/api/auth/instagram/callback`;
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://blais-social-engine.vercel.app').trim();
+  const redirectUri = `${appUrl}/api/auth/instagram/callback`;
 
   const scopes = [
     'instagram_basic',
