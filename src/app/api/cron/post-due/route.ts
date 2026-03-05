@@ -2,8 +2,54 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { publishInstagramPost } from '@/lib/posters/instagram';
 import { publishFacebookPost } from '@/lib/posters/facebook';
+import { refreshMetaToken, tokenNeedsRefresh } from '@/lib/meta/token-refresh';
 
 export const maxDuration = 60;
+
+/**
+ * Ensure the account's Meta token is fresh before posting.
+ * Refreshes if expired or expiring within 7 days.
+ * Returns the (possibly refreshed) access token.
+ */
+async function ensureFreshToken(
+  account: { id: string; platform: string; access_token: string; token_expires_at: string | null },
+  supabase: ReturnType<typeof createAdminClient>
+): Promise<string> {
+  // Only Meta platforms need token refresh
+  if (!['instagram', 'facebook'].includes(account.platform)) {
+    return account.access_token;
+  }
+
+  // Check if token needs refresh
+  if (!tokenNeedsRefresh(account.token_expires_at)) {
+    return account.access_token;
+  }
+
+  // Skip refresh if no app credentials configured (use token as-is)
+  if (!process.env.META_APP_ID || !process.env.META_APP_SECRET) {
+    console.warn(`[post-due] No META_APP_ID/SECRET — cannot refresh token for account ${account.id}`);
+    return account.access_token;
+  }
+
+  try {
+    console.log(`[post-due] Refreshing token for account ${account.id} (${account.platform})`);
+    const result = await refreshMetaToken(account.access_token);
+    const tokenExpiresAt = new Date(Date.now() + result.expires_in * 1000).toISOString();
+
+    // Update the stored token
+    await supabase.from('social_accounts').update({
+      access_token: result.access_token,
+      token_expires_at: tokenExpiresAt,
+    }).eq('id', account.id);
+
+    console.log(`[post-due] Token refreshed for ${account.id}, expires ${tokenExpiresAt}`);
+    return result.access_token;
+  } catch (err) {
+    console.error(`[post-due] Token refresh failed for ${account.id}:`, (err as Error).message);
+    // Fall back to existing token — it might still work
+    return account.access_token;
+  }
+}
 
 export async function GET(req: NextRequest) {
   // Verify cron secret
@@ -46,6 +92,9 @@ export async function GET(req: NextRequest) {
       .eq('id', post.id);
 
     try {
+      // Refresh token if needed BEFORE posting
+      const freshToken = await ensureFreshToken(account, supabase);
+
       let platformPostId: string;
       const media = post.post_media || [];
       const primaryMedia = media[0];
@@ -55,7 +104,7 @@ export async function GET(req: NextRequest) {
           const carouselUrls = media.length > 1 ? media.map((m: { media_url: string }) => m.media_url) : undefined;
           platformPostId = await publishInstagramPost({
             igUserId: account.platform_user_id,
-            accessToken: account.access_token,
+            accessToken: freshToken,
             caption: post.caption,
             imageUrl: primaryMedia?.media_url || '',
             mediaType: post.media_type as 'image' | 'video' | 'carousel',
@@ -66,7 +115,7 @@ export async function GET(req: NextRequest) {
         case 'facebook': {
           platformPostId = await publishFacebookPost({
             pageId: account.platform_user_id,
-            accessToken: account.access_token,
+            accessToken: freshToken,
             caption: post.caption,
             imageUrl: primaryMedia?.media_url,
           });
@@ -101,11 +150,16 @@ export async function GET(req: NextRequest) {
       const errorMessage = (err as Error).message;
       const newRetryCount = (post.retry_count || 0) + 1;
 
+      // If it's a token error (401/190), mark clearly so user knows to reconnect
+      const isTokenError = errorMessage.includes('190') || errorMessage.includes('401') || errorMessage.includes('OAuthException');
+
       await supabase
         .from('posts')
         .update({
           status: newRetryCount >= 3 ? 'failed' : 'retry',
-          error_message: errorMessage,
+          error_message: isTokenError
+            ? `Token expired — reconnect ${account.platform} in Settings. Original: ${errorMessage}`
+            : errorMessage,
           retry_count: newRetryCount,
         })
         .eq('id', post.id);
