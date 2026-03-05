@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { publishInstagramPost } from '@/lib/posters/instagram';
 import { publishFacebookPost } from '@/lib/posters/facebook';
+import { ensureValidToken } from '@/lib/token-refresh';
 
 export const maxDuration = 60;
 
@@ -46,6 +47,15 @@ export async function GET(req: NextRequest) {
       .eq('id', post.id);
 
     try {
+      // Refresh token if expired before publishing
+      const { accessToken } = await ensureValidToken(
+        account.id,
+        account.platform,
+        account.access_token,
+        account.refresh_token,
+        account.token_expires_at,
+      );
+
       let platformPostId: string;
       const media = post.post_media || [];
       const primaryMedia = media[0];
@@ -55,7 +65,7 @@ export async function GET(req: NextRequest) {
           const carouselUrls = media.length > 1 ? media.map((m: { media_url: string }) => m.media_url) : undefined;
           platformPostId = await publishInstagramPost({
             igUserId: account.platform_user_id,
-            accessToken: account.access_token,
+            accessToken,
             caption: post.caption,
             imageUrl: primaryMedia?.media_url || '',
             mediaType: post.media_type as 'image' | 'video' | 'carousel',
@@ -66,7 +76,7 @@ export async function GET(req: NextRequest) {
         case 'facebook': {
           platformPostId = await publishFacebookPost({
             pageId: account.platform_user_id,
-            accessToken: account.access_token,
+            accessToken,
             caption: post.caption,
             imageUrl: primaryMedia?.media_url,
           });

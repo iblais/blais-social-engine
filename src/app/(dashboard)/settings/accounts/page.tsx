@@ -18,7 +18,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Plus, Trash2, CheckCircle, XCircle } from 'lucide-react';
+import { Plus, Trash2, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
 import type { SocialAccount, Platform } from '@/types/database';
 
 const PLATFORMS: { value: Platform; label: string }[] = [
@@ -96,6 +96,32 @@ export default function AccountsPage() {
 
   return (
     <div className="space-y-6">
+      {/* OAuth connect cards */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Connect via OAuth</CardTitle>
+          <CardDescription>
+            Connect your accounts securely. Tokens will be managed and refreshed automatically.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-3">
+          <Button
+            onClick={() => window.location.href = '/api/auth/facebook'}
+            variant="outline"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Connect Instagram / Facebook
+          </Button>
+          <Button
+            onClick={() => window.location.href = '/api/auth/youtube'}
+            variant="outline"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Connect YouTube
+          </Button>
+        </CardContent>
+      </Card>
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Connected Accounts</h1>
@@ -105,7 +131,7 @@ export default function AccountsPage() {
           <DialogTrigger asChild>
             <Button>
               <Plus className="h-4 w-4 mr-2" />
-              Add Account
+              Add Account Manually
             </Button>
           </DialogTrigger>
           <DialogContent>
@@ -193,6 +219,13 @@ export default function AccountsPage() {
                   <div>
                     <p className="font-medium">@{account.username}</p>
                     <p className="text-sm text-muted-foreground capitalize">{account.platform}</p>
+                    {account.token_expires_at && (
+                      <p className={`text-xs ${new Date(account.token_expires_at) < new Date() ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
+                        {new Date(account.token_expires_at) < new Date()
+                          ? 'Token expired — reconnect required'
+                          : `Token expires ${new Date(account.token_expires_at).toLocaleDateString()}`}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
