@@ -7,7 +7,7 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { prompt, style } = await req.json();
+  const { prompt, style, referenceImages } = await req.json();
 
   const { data: setting } = await supabase
     .from('app_settings')
@@ -17,15 +17,20 @@ export async function POST(req: NextRequest) {
 
   const apiKey = setting?.value || process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ error: 'Gemini API key not configured. Add it in Settings.' }, { status: 400 });
+    return NextResponse.json({ error: 'Gemini API key not configured. Add it in Settings > General.' }, { status: 400 });
   }
 
-  const fullPrompt = `Create a high-quality social media image: ${prompt}${style && style !== 'none' ? `. Style: ${style}` : ''}. Make it visually appealing and suitable for Instagram/social media.`;
+  const styleSuffix = style && style !== 'none' ? `. Style: ${style}` : '';
+  const refNote = referenceImages?.length
+    ? ` Use the provided reference image(s) as inspiration for style, composition, and mood.`
+    : '';
+  const fullPrompt = `Create a high-quality social media image: ${prompt}${styleSuffix}${refNote}. Make it visually appealing and suitable for Instagram/social media.`;
 
   try {
-    const dataUrl = await geminiGenerateImage(fullPrompt, apiKey);
+    const dataUrl = await geminiGenerateImage(fullPrompt, apiKey, referenceImages);
     return NextResponse.json({ image: dataUrl });
   } catch (err) {
+    console.error('Image gen error:', (err as Error).message);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }

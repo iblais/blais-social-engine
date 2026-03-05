@@ -44,7 +44,10 @@ export default function PipelinePage() {
 
   async function addIdea() {
     if (!newTitle.trim()) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { toast.error('Not authenticated'); return; }
     const { error } = await supabase.from('content_pipeline').insert({
+      user_id: user.id,
       title: newTitle,
       description: '',
       stage: 'idea',

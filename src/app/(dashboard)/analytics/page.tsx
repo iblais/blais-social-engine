@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -16,9 +16,31 @@ interface PostWithMetrics {
   post_metrics: { impressions: number; reach: number; likes: number; comments: number; shares: number; saves: number; engagement_rate: number }[];
 }
 
+const PLATFORM_COLORS: Record<string, string> = {
+  instagram: '#E1306C',
+  facebook: '#1877F2',
+  bluesky: '#0085FF',
+  twitter: '#000000',
+  youtube: '#FF0000',
+  tiktok: '#000000',
+  pinterest: '#E60023',
+  linkedin: '#0A66C2',
+};
+
+const PLATFORM_LABELS: Record<string, string> = {
+  instagram: 'Instagram',
+  facebook: 'Facebook',
+  bluesky: 'Bluesky',
+  twitter: 'Twitter/X',
+  youtube: 'YouTube',
+  tiktok: 'TikTok',
+  pinterest: 'Pinterest',
+  linkedin: 'LinkedIn',
+};
+
 export default function AnalyticsPage() {
   const [posts, setPosts] = useState<PostWithMetrics[]>([]);
-  const [totals, setTotals] = useState({ impressions: 0, reach: 0, likes: 0, comments: 0, shares: 0, saves: 0 });
+  const [activePlatform, setActivePlatform] = useState<string | null>(null);
   const { accountIds, activeBrandId } = useBrandAccounts();
   const supabase = createClient();
 
@@ -28,19 +50,34 @@ export default function AnalyticsPage() {
       .select('id, caption, status, platform, published_at, post_metrics(impressions, reach, likes, comments, shares, saves, engagement_rate)')
       .eq('status', 'posted')
       .order('published_at', { ascending: false })
-      .limit(50);
+      .limit(200);
 
     if (activeBrandId && accountIds.length) {
       query = query.in('account_id', accountIds);
     }
 
     const { data } = await query;
+    setPosts((data || []) as PostWithMetrics[]);
+  }, [supabase, activeBrandId, accountIds]);
 
-    const list = (data || []) as PostWithMetrics[];
-    setPosts(list);
+  useEffect(() => { load(); }, [load]);
 
+  // Get unique platforms from the data
+  const platforms = useMemo(() => {
+    const set = new Set(posts.map(p => p.platform));
+    return Array.from(set).sort();
+  }, [posts]);
+
+  // Filter posts by platform
+  const filtered = useMemo(() => {
+    if (!activePlatform) return posts;
+    return posts.filter(p => p.platform === activePlatform);
+  }, [posts, activePlatform]);
+
+  // Compute totals for filtered posts
+  const totals = useMemo(() => {
     const t = { impressions: 0, reach: 0, likes: 0, comments: 0, shares: 0, saves: 0 };
-    list.forEach(p => {
+    filtered.forEach(p => {
       const m = p.post_metrics?.[0];
       if (m) {
         t.impressions += m.impressions;
@@ -51,10 +88,29 @@ export default function AnalyticsPage() {
         t.saves += m.saves;
       }
     });
-    setTotals(t);
-  }, [supabase, activeBrandId, accountIds]);
+    return t;
+  }, [filtered]);
 
-  useEffect(() => { load(); }, [load]);
+  // Per-platform summary for the breakdown section
+  const platformBreakdown = useMemo(() => {
+    const map: Record<string, { posts: number; likes: number; comments: number; reach: number; avgEngagement: number }> = {};
+    posts.forEach(p => {
+      if (!map[p.platform]) map[p.platform] = { posts: 0, likes: 0, comments: 0, reach: 0, avgEngagement: 0 };
+      map[p.platform].posts++;
+      const m = p.post_metrics?.[0];
+      if (m) {
+        map[p.platform].likes += m.likes;
+        map[p.platform].comments += m.comments;
+        map[p.platform].reach += m.reach;
+        map[p.platform].avgEngagement += m.engagement_rate;
+      }
+    });
+    // Calculate average engagement
+    Object.keys(map).forEach(k => {
+      if (map[k].posts > 0) map[k].avgEngagement = map[k].avgEngagement / map[k].posts;
+    });
+    return map;
+  }, [posts]);
 
   const kpis = [
     { title: 'Impressions', value: totals.impressions, icon: Eye },
@@ -72,6 +128,31 @@ export default function AnalyticsPage() {
         <p className="text-muted-foreground">Track your post performance across platforms</p>
       </div>
 
+      {/* Platform filter tabs */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <button
+          onClick={() => setActivePlatform(null)}
+          className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+            !activePlatform ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground bg-muted hover:bg-muted/80'
+          }`}
+        >
+          All Platforms
+        </button>
+        {platforms.map(plat => (
+          <button
+            key={plat}
+            onClick={() => setActivePlatform(plat)}
+            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+              activePlatform === plat ? 'text-white shadow-sm' : 'text-muted-foreground bg-muted hover:bg-muted/80'
+            }`}
+            style={activePlatform === plat ? { backgroundColor: PLATFORM_COLORS[plat] || '#888' } : undefined}
+          >
+            {PLATFORM_LABELS[plat] || plat}
+          </button>
+        ))}
+      </div>
+
+      {/* KPI cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {kpis.map(k => (
           <Card key={k.title}>
@@ -86,20 +167,56 @@ export default function AnalyticsPage() {
         ))}
       </div>
 
+      {/* Platform breakdown (only show when "All Platforms" is active) */}
+      {!activePlatform && platforms.length > 1 && (
+        <Card>
+          <CardHeader><CardTitle>Platform Breakdown</CardTitle></CardHeader>
+          <CardContent>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {platforms.map(plat => {
+                const s = platformBreakdown[plat];
+                if (!s) return null;
+                return (
+                  <div key={plat} className="p-3 rounded-lg border">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="w-3 h-3 rounded-full" style={{ backgroundColor: PLATFORM_COLORS[plat] || '#888' }} />
+                      <span className="font-medium text-sm">{PLATFORM_LABELS[plat] || plat}</span>
+                      <Badge variant="secondary" className="text-xs ml-auto">{s.posts} posts</Badge>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-1"><Heart className="h-3 w-3" />{s.likes.toLocaleString()}</div>
+                      <div className="flex items-center gap-1"><MessageCircle className="h-3 w-3" />{s.comments.toLocaleString()}</div>
+                      <div className="flex items-center gap-1"><Eye className="h-3 w-3" />{s.reach.toLocaleString()}</div>
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Avg engagement: {(s.avgEngagement * 100).toFixed(1)}%
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Post list */}
       <Card>
-        <CardHeader><CardTitle>Top Posts</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Top Posts {activePlatform ? `- ${PLATFORM_LABELS[activePlatform]}` : ''}</CardTitle></CardHeader>
         <CardContent>
-          {!posts.length ? (
-            <p className="text-muted-foreground text-center py-8">No published posts with metrics yet. Metrics are collected after posts are published.</p>
+          {!filtered.length ? (
+            <p className="text-muted-foreground text-center py-8">No published posts with metrics yet.</p>
           ) : (
             <div className="space-y-3">
-              {posts.map(p => {
+              {filtered.map(p => {
                 const m = p.post_metrics?.[0];
                 return (
                   <div key={p.id} className="flex items-center justify-between p-3 rounded-lg border">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{p.caption?.substring(0, 80) || 'No caption'}</p>
-                      <p className="text-xs text-muted-foreground capitalize">{p.platform} &middot; {p.published_at ? new Date(p.published_at).toLocaleDateString() : '—'}</p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: PLATFORM_COLORS[p.platform] || '#888' }} />
+                        <p className="text-xs text-muted-foreground capitalize">{PLATFORM_LABELS[p.platform] || p.platform} &middot; {p.published_at ? new Date(p.published_at).toLocaleDateString() : '—'}</p>
+                      </div>
                     </div>
                     {m ? (
                       <div className="flex gap-4 text-xs text-muted-foreground">

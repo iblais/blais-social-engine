@@ -34,9 +34,17 @@ Return ONLY the JSON array, no markdown formatting.`;
   try {
     const raw = await geminiGenerate(prompt, apiKey);
     const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    const ideas = JSON.parse(cleaned);
+    // Find the JSON array in the response
+    const startIdx = cleaned.indexOf('[');
+    const endIdx = cleaned.lastIndexOf(']');
+    if (startIdx === -1 || endIdx === -1) {
+      throw new Error('AI did not return valid JSON. Please try again.');
+    }
+    const ideas = JSON.parse(cleaned.slice(startIdx, endIdx + 1));
     return NextResponse.json({ ideas });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    const msg = (err as Error).message;
+    console.error('Content ideas error:', msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

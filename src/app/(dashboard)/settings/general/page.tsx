@@ -23,11 +23,14 @@ export default function GeneralSettingsPage() {
 
   async function saveKey() {
     setLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { toast.error('Not authenticated'); setLoading(false); return; }
+
     const { data: existing } = await supabase.from('app_settings').select('id').eq('key', 'gemini_api_key').single();
 
     const { error } = existing
       ? await supabase.from('app_settings').update({ value: geminiKey }).eq('key', 'gemini_api_key')
-      : await supabase.from('app_settings').insert({ key: 'gemini_api_key', value: geminiKey });
+      : await supabase.from('app_settings').insert({ user_id: user.id, key: 'gemini_api_key', value: geminiKey });
 
     if (error) toast.error(error.message);
     else toast.success('API key saved!');

@@ -44,7 +44,10 @@ export default function EvergreenPage() {
 
   async function recycle(post: PostWithMetrics) {
     setLoading(post.id);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { toast.error('Not authenticated'); setLoading(null); return; }
     const { error } = await supabase.from('posts').insert({
+      user_id: user.id,
       account_id: post.account_id,
       platform: post.platform,
       caption: post.caption,

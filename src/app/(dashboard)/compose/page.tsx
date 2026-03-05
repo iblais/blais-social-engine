@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { ImagePlus, Clock, Save, Trash2, ArrowLeft, Check } from 'lucide-react';
+import { ImagePlus, Clock, Save, Trash2, ArrowLeft, Check, Sparkles } from 'lucide-react';
 import type { SocialAccount, PostMedia } from '@/types/database';
 import { useBrandAccounts } from '@/lib/hooks/use-brand-accounts';
 
@@ -36,6 +36,7 @@ export default function ComposePage() {
   const [removedMediaIds, setRemovedMediaIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingPost, setLoadingPost] = useState(false);
+  const [aiCaptionLoading, setAiCaptionLoading] = useState(false);
 
   // Multi-platform: which accounts are enabled for this post
   const [enabledAccountIds, setEnabledAccountIds] = useState<Set<string>>(new Set());
@@ -139,6 +140,39 @@ export default function ComposePage() {
     setMediaPreviews((prev) => prev.filter((_, i) => i !== index));
   }
 
+  // AI caption generation — analyzes uploaded images with Gemini vision
+  async function generateAICaption() {
+    setAiCaptionLoading(true);
+    try {
+      // Collect image data URLs from previews (both new files and existing media URLs)
+      const imageData: string[] = [];
+      for (const preview of mediaPreviews) {
+        imageData.push(preview); // data URLs or public URLs
+      }
+
+      const res = await fetch('/api/ai/caption', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic: caption || undefined,
+          platform: PLATFORM_META[previewPlatform]?.label || 'Instagram',
+          includeHashtags: true,
+          includeEmojis: true,
+          includeCTA: true,
+          images: imageData.length ? imageData : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setCaption(data.caption);
+      toast.success('AI caption generated!');
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setAiCaptionLoading(false);
+    }
+  }
+
   // Get active char limit
   const activeCharLimit = useMemo(() => {
     const meta = PLATFORM_META[previewPlatform];
@@ -158,6 +192,9 @@ export default function ComposePage() {
 
     setLoading(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { toast.error('Not authenticated'); setLoading(false); return; }
+
       const totalMedia = existingMedia.filter((m) => !removedMediaIds.includes(m.id)).length + mediaFiles.length;
       const mediaType = totalMedia > 1 ? 'carousel' : totalMedia === 1 ? 'image' : 'image';
       const scheduledIso = status === 'scheduled' ? new Date(scheduledAt).toISOString() : null;
@@ -195,6 +232,7 @@ export default function ComposePage() {
           if (!acc) continue;
 
           const { data: post, error: postErr } = await supabase.from('posts').insert({
+            user_id: user.id,
             account_id: accId,
             platform: acc.platform,
             caption,
@@ -340,6 +378,15 @@ export default function ComposePage() {
                     <ImagePlus className="h-5 w-5 text-muted-foreground" />
                     <input type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleFileChange} />
                   </label>
+                  <button
+                    type="button"
+                    onClick={generateAICaption}
+                    disabled={aiCaptionLoading}
+                    className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    {aiCaptionLoading ? 'Generating...' : 'AI Caption'}
+                  </button>
                 </div>
                 <span className={`text-xs ${caption.length > activeCharLimit ? 'text-destructive font-bold' : 'text-muted-foreground'}`}>
                   {caption.length} / {activeCharLimit.toLocaleString()}

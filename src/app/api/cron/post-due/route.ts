@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { publishInstagramPost } from '@/lib/posters/instagram';
 import { publishFacebookPost } from '@/lib/posters/facebook';
+import { publishBlueskyPost } from '@/lib/posters/bluesky';
 import { refreshAccountToken, tokenNeedsRefresh } from '@/lib/meta/token-refresh';
 
 export const maxDuration = 60;
@@ -131,6 +132,15 @@ export async function GET(req: NextRequest) {
           platformPostId = await publishFacebookPost({
             pageId: account.platform_user_id,
             accessToken: freshToken,
+            caption: post.caption,
+            imageUrl: primaryMedia?.media_url,
+          });
+          break;
+        }
+        case 'bluesky': {
+          platformPostId = await publishBlueskyPost({
+            handle: account.username,
+            appPassword: freshToken,
             caption: post.caption,
             imageUrl: primaryMedia?.media_url,
           });

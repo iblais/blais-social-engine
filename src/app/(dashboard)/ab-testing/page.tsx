@@ -47,8 +47,10 @@ export default function ABTestingPage() {
       toast.error('Fill in all fields'); return;
     }
     setLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { toast.error('Not authenticated'); setLoading(false); return; }
     const { error } = await supabase.from('ab_tests').insert({
-      name, variant_a: variantA, variant_b: variantB, status: 'active',
+      user_id: user.id, name, variant_a: variantA, variant_b: variantB, status: 'active',
     });
     if (error) toast.error(error.message);
     else { toast.success('Test created!'); setOpen(false); setName(''); setVariantA(''); setVariantB(''); load(); }

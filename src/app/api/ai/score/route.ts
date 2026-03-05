@@ -36,10 +36,14 @@ Reply with ONLY a JSON object like {"score": 75, "reason": "brief 1-sentence exp
   try {
     const raw = await geminiGenerate(prompt, apiKey);
     const cleaned = raw.replace(/```json\n?/g, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(cleaned);
+    const startIdx = cleaned.indexOf('{');
+    const endIdx = cleaned.lastIndexOf('}');
+    if (startIdx === -1 || endIdx === -1) throw new Error('AI did not return valid JSON.');
+    const parsed = JSON.parse(cleaned.slice(startIdx, endIdx + 1));
     const score = Math.min(100, Math.max(0, Math.round(Number(parsed.score))));
     return NextResponse.json({ score, reason: parsed.reason || '' });
   } catch (err) {
+    console.error('Score error:', (err as Error).message);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }
