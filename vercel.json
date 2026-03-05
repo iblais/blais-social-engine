@@ -5,10 +5,6 @@
       "schedule": "*/5 * * * *"
     },
     {
-      "path": "/api/cron/process-retries",
-      "schedule": "0 12 * * *"
-    },
-    {
       "path": "/api/auth/refresh",
       "schedule": "0 6 * * *"
     }

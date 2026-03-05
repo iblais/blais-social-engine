@@ -68,8 +68,29 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  // Also re-queue retries (posts that failed but have retries left, waiting 5+ min)
+  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  const { data: retryPosts } = await supabase
+    .from('posts')
+    .select('id')
+    .eq('status', 'retry')
+    .lt('updated_at', fiveMinutesAgo)
+    .lt('retry_count', 3)
+    .limit(20);
+
+  if (retryPosts?.length) {
+    await supabase
+      .from('posts')
+      .update({ status: 'scheduled', scheduled_at: new Date().toISOString() })
+      .in('id', retryPosts.map((p) => p.id));
+  }
+
   if (!duePosts?.length) {
-    return NextResponse.json({ message: 'No posts due', processed: 0 });
+    return NextResponse.json({
+      message: 'No posts due',
+      processed: 0,
+      retries_requeued: retryPosts?.length || 0,
+    });
   }
 
   let processed = 0;
@@ -162,5 +183,10 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ message: 'Done', processed, failed });
+  return NextResponse.json({
+    message: 'Done',
+    processed,
+    failed,
+    retries_requeued: retryPosts?.length || 0,
+  });
 }
