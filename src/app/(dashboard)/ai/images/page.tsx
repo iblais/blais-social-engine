@@ -47,7 +47,7 @@ export default function AIImagesPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">AI Image Generator</h1>
-        <p className="text-muted-foreground">Create images for your posts with Gemini AI</p>
+        <p className="text-muted-foreground">Create images for your posts with Nano Banana 2</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[400px_1fr]">

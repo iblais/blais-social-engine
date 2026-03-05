@@ -22,9 +22,10 @@ export async function geminiGenerate(prompt: string, apiKey: string): Promise<st
   return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
+// Nano Banana 2 (Gemini 3.1 Flash Image) — Google's fastest image generation model
 export async function geminiGenerateImage(prompt: string, apiKey: string): Promise<string> {
   const res = await fetch(
-    `${GEMINI_BASE}/models/gemini-2.0-flash-exp-image-generation:generateContent?key=${apiKey}`,
+    `${GEMINI_BASE}/models/gemini-3.1-flash-image-preview:generateContent?key=${apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -37,7 +38,7 @@ export async function geminiGenerateImage(prompt: string, apiKey: string): Promi
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(`Gemini Image API error ${res.status}: ${err?.error?.message || res.statusText}`);
+    throw new Error(`Nano Banana 2 API error ${res.status}: ${err?.error?.message || res.statusText}`);
   }
 
   const data = await res.json();
