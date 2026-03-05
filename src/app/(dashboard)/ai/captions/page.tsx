@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
-import { Sparkles, Copy, RotateCcw } from 'lucide-react';
+import { Sparkles, Copy, RotateCcw, Save, Check } from 'lucide-react';
 
 export default function AICaptionsPage() {
   const [topic, setTopic] = useState('');
@@ -22,6 +23,9 @@ export default function AICaptionsPage() {
   const [result, setResult] = useState('');
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
+  const [savedCaptions, setSavedCaptions] = useState<Set<string>>(new Set());
+  const [savingAll, setSavingAll] = useState(false);
+  const supabase = createClient();
 
   async function generate() {
     if (!topic.trim()) { toast.error('Enter a topic'); return; }
@@ -47,6 +51,49 @@ export default function AICaptionsPage() {
     navigator.clipboard.writeText(text);
     toast.success('Copied!');
   }
+
+  async function saveCaption(caption: string) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { toast.error('Not authenticated'); return; }
+
+    const name = `${platform} - ${topic.substring(0, 40) || 'AI Caption'} (${new Date().toLocaleDateString()})`;
+
+    const { error } = await supabase.from('caption_templates').insert({
+      user_id: user.id,
+      name,
+      template: caption,
+      variables: [],
+    });
+
+    if (error) { toast.error(error.message); return; }
+    setSavedCaptions(prev => new Set(prev).add(caption));
+    toast.success('Caption saved to Templates');
+  }
+
+  async function saveAllCaptions() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { toast.error('Not authenticated'); return; }
+
+    setSavingAll(true);
+    const unsaved = history.filter(c => !savedCaptions.has(c));
+    const rows = unsaved.map((caption, i) => ({
+      user_id: user.id,
+      name: `${platform} - ${topic.substring(0, 30) || 'AI'} #${i + 1} (${new Date().toLocaleDateString()})`,
+      template: caption,
+      variables: [],
+    }));
+
+    const { error } = await supabase.from('caption_templates').insert(rows);
+    if (error) { toast.error(error.message); setSavingAll(false); return; }
+
+    const allSaved = new Set(history);
+    setSavedCaptions(allSaved);
+    toast.success(`${unsaved.length} captions saved to Templates`);
+    setSavingAll(false);
+  }
+
+  const isSaved = (caption: string) => savedCaptions.has(caption);
+  const unsavedCount = history.filter(c => !savedCaptions.has(c)).length;
 
   return (
     <div className="space-y-6">
@@ -90,6 +137,7 @@ export default function AICaptionsPage() {
                       <SelectItem value="Twitter/X">Twitter/X</SelectItem>
                       <SelectItem value="TikTok">TikTok</SelectItem>
                       <SelectItem value="LinkedIn">LinkedIn</SelectItem>
+                      <SelectItem value="Bluesky">Bluesky</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -129,7 +177,10 @@ export default function AICaptionsPage() {
                 {result && (
                   <div className="flex gap-1">
                     <Button variant="ghost" size="sm" onClick={() => copy(result)}><Copy className="h-3.5 w-3.5 mr-1" />Copy</Button>
-                    <Button variant="ghost" size="sm" onClick={generate}><RotateCcw className="h-3.5 w-3.5 mr-1" />Regenerate</Button>
+                    <Button variant="ghost" size="sm" onClick={() => saveCaption(result)} disabled={isSaved(result)}>
+                      {isSaved(result) ? <><Check className="h-3.5 w-3.5 mr-1" />Saved</> : <><Save className="h-3.5 w-3.5 mr-1" />Save</>}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={generate}><RotateCcw className="h-3.5 w-3.5 mr-1" />Regen</Button>
                   </div>
                 )}
               </div>
@@ -145,12 +196,31 @@ export default function AICaptionsPage() {
 
           {history.length > 1 && (
             <Card>
-              <CardHeader><CardTitle className="text-sm">History</CardTitle></CardHeader>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm">History ({history.length - 1})</CardTitle>
+                  <Button variant="outline" size="sm" onClick={saveAllCaptions} disabled={savingAll || unsavedCount === 0}>
+                    <Save className="h-3 w-3 mr-1" />
+                    {unsavedCount === 0 ? 'All Saved' : savingAll ? 'Saving...' : `Save All (${unsavedCount})`}
+                  </Button>
+                </div>
+              </CardHeader>
               <CardContent className="space-y-2">
                 {history.slice(1).map((h, i) => (
-                  <div key={i} className="text-xs text-muted-foreground bg-muted p-2 rounded cursor-pointer hover:bg-muted/80"
-                    onClick={() => { setResult(h); copy(h); }}>
-                    {h.substring(0, 100)}...
+                  <div key={i} className="flex items-start gap-2 bg-muted p-2 rounded group">
+                    <p className="text-xs text-muted-foreground flex-1 cursor-pointer hover:text-foreground"
+                      onClick={() => { setResult(h); copy(h); }}>
+                      {h.substring(0, 120)}...
+                    </p>
+                    <div className="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => copy(h)} className="p-1 hover:bg-background rounded" title="Copy">
+                        <Copy className="h-3 w-3 text-muted-foreground" />
+                      </button>
+                      <button onClick={() => saveCaption(h)} disabled={isSaved(h)}
+                        className="p-1 hover:bg-background rounded" title="Save">
+                        {isSaved(h) ? <Check className="h-3 w-3 text-green-500" /> : <Save className="h-3 w-3 text-muted-foreground" />}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </CardContent>

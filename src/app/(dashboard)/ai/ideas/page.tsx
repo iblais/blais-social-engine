@@ -1,14 +1,15 @@
 'use client';
 
 import { useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Lightbulb, Sparkles, Image, LayoutGrid, Film, MessageCircle } from 'lucide-react';
+import { Lightbulb, Sparkles, Image, LayoutGrid, Film, MessageCircle, Save, Check } from 'lucide-react';
 
 interface Idea {
   title: string;
@@ -36,10 +37,14 @@ export default function AIIdeasPage() {
   const [count, setCount] = useState(10);
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [loading, setLoading] = useState(false);
+  const [savedIds, setSavedIds] = useState<Set<number>>(new Set());
+  const [savingAll, setSavingAll] = useState(false);
+  const supabase = createClient();
 
   async function generate() {
     if (!niche.trim()) { toast.error('Enter a niche'); return; }
     setLoading(true);
+    setSavedIds(new Set());
     try {
       const res = await fetch('/api/ai/ideas', {
         method: 'POST',
@@ -55,6 +60,48 @@ export default function AIIdeasPage() {
       setLoading(false);
     }
   }
+
+  async function saveIdea(idea: Idea, index: number) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { toast.error('Not authenticated'); return; }
+
+    const { error } = await supabase.from('content_pipeline').insert({
+      user_id: user.id,
+      title: idea.title,
+      description: `${idea.description}\n\nType: ${idea.contentType} | Engagement: ${idea.engagement} | Platform: ${platform}`,
+      stage: 'idea',
+      score: null,
+    });
+
+    if (error) { toast.error(error.message); return; }
+    setSavedIds(prev => new Set(prev).add(index));
+    toast.success(`"${idea.title}" saved to Pipeline`);
+  }
+
+  async function saveAll() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { toast.error('Not authenticated'); return; }
+
+    setSavingAll(true);
+    const unsaved = ideas.filter((_, i) => !savedIds.has(i));
+    const rows = unsaved.map(idea => ({
+      user_id: user.id,
+      title: idea.title,
+      description: `${idea.description}\n\nType: ${idea.contentType} | Engagement: ${idea.engagement} | Platform: ${platform}`,
+      stage: 'idea',
+      score: null,
+    }));
+
+    const { error } = await supabase.from('content_pipeline').insert(rows);
+    if (error) { toast.error(error.message); setSavingAll(false); return; }
+
+    const allIds = new Set(ideas.map((_, i) => i));
+    setSavedIds(allIds);
+    toast.success(`${unsaved.length} ideas saved to Pipeline`);
+    setSavingAll(false);
+  }
+
+  const unsavedCount = ideas.filter((_, i) => !savedIds.has(i)).length;
 
   return (
     <div className="space-y-6">
@@ -77,9 +124,11 @@ export default function AIIdeasPage() {
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Instagram">Instagram</SelectItem>
+                  <SelectItem value="Facebook">Facebook</SelectItem>
                   <SelectItem value="TikTok">TikTok</SelectItem>
                   <SelectItem value="YouTube">YouTube</SelectItem>
                   <SelectItem value="Twitter/X">Twitter/X</SelectItem>
+                  <SelectItem value="LinkedIn">LinkedIn</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -103,34 +152,57 @@ export default function AIIdeasPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {ideas.map((idea, i) => {
-            const Icon = typeIcons[idea.contentType?.toLowerCase()] || Image;
-            return (
-              <Card key={i}>
-                <CardContent className="pt-6">
-                  <div className="flex items-start gap-3">
-                    <div className="flex-shrink-0 w-8 h-8 rounded bg-primary/10 flex items-center justify-center">
-                      <Icon className="h-4 w-4 text-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <p className="font-medium text-sm">{idea.title}</p>
+        <>
+          {/* Save All bar */}
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">{ideas.length} ideas generated</p>
+            <Button onClick={saveAll} disabled={savingAll || unsavedCount === 0} size="sm" variant="outline">
+              <Save className="h-3.5 w-3.5 mr-1.5" />
+              {unsavedCount === 0 ? 'All Saved' : savingAll ? 'Saving...' : `Save All (${unsavedCount})`}
+            </Button>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            {ideas.map((idea, i) => {
+              const Icon = typeIcons[idea.contentType?.toLowerCase()] || Image;
+              const isSaved = savedIds.has(i);
+              return (
+                <Card key={i}>
+                  <CardContent className="pt-6">
+                    <div className="flex items-start gap-3">
+                      <div className="flex-shrink-0 w-8 h-8 rounded bg-primary/10 flex items-center justify-center">
+                        <Icon className="h-4 w-4 text-primary" />
                       </div>
-                      <p className="text-xs text-muted-foreground mb-2">{idea.description}</p>
-                      <div className="flex gap-2">
-                        <Badge variant="secondary" className="text-xs capitalize">{idea.contentType}</Badge>
-                        <Badge variant="secondary" className={`text-xs capitalize ${engagementColors[idea.engagement?.toLowerCase()] || ''}`}>
-                          {idea.engagement}
-                        </Badge>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2 mb-1">
+                          <p className="font-medium text-sm">{idea.title}</p>
+                          <button
+                            onClick={() => saveIdea(idea, i)}
+                            disabled={isSaved}
+                            className={`flex-shrink-0 p-1 rounded transition-colors ${
+                              isSaved ? 'text-green-500' : 'text-muted-foreground hover:text-primary hover:bg-primary/10'
+                            }`}
+                            title={isSaved ? 'Saved to Pipeline' : 'Save to Pipeline'}
+                          >
+                            {isSaved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+                          </button>
+                        </div>
+                        <p className="text-xs text-muted-foreground mb-2">{idea.description}</p>
+                        <div className="flex gap-2">
+                          <Badge variant="secondary" className="text-xs capitalize">{idea.contentType}</Badge>
+                          <Badge variant="secondary" className={`text-xs capitalize ${engagementColors[idea.engagement?.toLowerCase()] || ''}`}>
+                            {idea.engagement}
+                          </Badge>
+                          {isSaved && <Badge variant="secondary" className="text-[10px] bg-green-500/20 text-green-400">Saved</Badge>}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );

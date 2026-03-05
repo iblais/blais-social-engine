@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
+import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { Download, Sparkles, X, Upload, Image as ImageIcon, Film, Loader2 } from 'lucide-react';
+import { Download, Sparkles, X, Upload, Image as ImageIcon, Film, Loader2, Check } from 'lucide-react';
 
 // ── Aspect Ratios ──────────────────────────────────────────
 const IMAGE_RATIOS = ['Auto', '1:1', '3:4', '4:3', '2:3', '3:2', '9:16', '16:9', '5:4', '4:5', '21:9'] as const;
@@ -23,6 +24,8 @@ type Mode = 'image' | 'video';
 type VideoTab = 'frames' | 'ingredients';
 
 export default function AIImagesPage() {
+  const supabase = createClient();
+
   // ── Shared state ──
   const [mode, setMode] = useState<Mode>('image');
   const [prompt, setPrompt] = useState('');
@@ -88,6 +91,41 @@ export default function AIImagesPage() {
     if (e.target) e.target.value = '';
   }
 
+  // ── Save to Media Library ──
+  async function saveToMediaLibrary(dataUrl: string, type: 'image' | 'video') {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const ext = type === 'video' ? 'mp4' : 'png';
+      const fileName = `ai-${type}-${Date.now()}.${ext}`;
+      const storagePath = `library/${fileName}`;
+
+      // Convert data URL to blob
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+
+      const { error: uploadErr } = await supabase.storage.from('media').upload(storagePath, blob, {
+        contentType: type === 'video' ? 'video/mp4' : 'image/png',
+      });
+      if (uploadErr) { console.error('Upload error:', uploadErr.message); return; }
+
+      const { data: { publicUrl } } = supabase.storage.from('media').getPublicUrl(storagePath);
+
+      await supabase.from('media_assets').insert({
+        user_id: user.id,
+        file_name: fileName,
+        storage_path: storagePath,
+        url: publicUrl,
+        media_type: type,
+        file_size: blob.size,
+        folder: 'ai-generated',
+      });
+    } catch (err) {
+      console.error('Auto-save error:', err);
+    }
+  }
+
   // ── Generate Image ──
   async function generateImage() {
     if (!prompt.trim()) { toast.error('Enter a prompt'); return; }
@@ -112,7 +150,14 @@ export default function AIImagesPage() {
       const newImages = (data.images as string[]).map(url => ({ type: 'image' as const, url }));
       setGallery(prev => [...newImages, ...prev].slice(0, 30));
       if (newImages[0]) setSelectedResult(newImages[0]);
-      toast.success(`${newImages.length} image${newImages.length > 1 ? 's' : ''} generated!`);
+
+      // Auto-save all generated images to media library
+      let savedCount = 0;
+      for (const img of data.images as string[]) {
+        await saveToMediaLibrary(img, 'image');
+        savedCount++;
+      }
+      toast.success(`${newImages.length} image${newImages.length > 1 ? 's' : ''} generated & saved to Media Library`);
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
