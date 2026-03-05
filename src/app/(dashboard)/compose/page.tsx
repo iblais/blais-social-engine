@@ -513,7 +513,7 @@ export default function ComposePage() {
                     <div key={acc.id} className="flex items-center gap-2 text-sm">
                       <span className="w-2 h-2 rounded-full" style={{ backgroundColor: meta?.color || '#888' }} />
                       <span className="font-medium">{meta?.label}</span>
-                      <span className="text-muted-foreground text-xs">@{acc.username}</span>
+                      <span className="text-muted-foreground text-xs">{acc.username.startsWith('@') ? acc.username : `@${acc.username}`}</span>
                       <Badge variant="secondary" className="text-[10px] ml-auto capitalize">{postTypes[acc.id] || 'post'}</Badge>
                     </div>
                   );

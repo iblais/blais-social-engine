@@ -80,7 +80,7 @@ export function AccountSwitcher() {
                   />
                 </span>
                 <span className="flex flex-col items-start leading-tight">
-                  <span className="text-sm font-semibold">@{activeAccount.username}</span>
+                  <span className="text-sm font-semibold">{activeAccount.username.startsWith('@') ? activeAccount.username : `@${activeAccount.username}`}</span>
                   <span className="text-[10px] text-muted-foreground">{platformLabels[activeAccount.platform] || activeAccount.platform}</span>
                 </span>
               </span>
@@ -119,7 +119,7 @@ export function AccountSwitcher() {
                   <AccountAvatar account={a} index={i} />
                 </span>
                 <span className="flex flex-col items-start leading-tight">
-                  <span className="text-sm font-medium">@{a.username}</span>
+                  <span className="text-sm font-medium">{a.username.startsWith('@') ? a.username : `@${a.username}`}</span>
                   <span className="text-[10px] text-muted-foreground">{platformLabels[a.platform] || a.platform}</span>
                 </span>
               </span>

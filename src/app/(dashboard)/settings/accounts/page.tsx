@@ -281,7 +281,7 @@ export default function AccountsPage() {
                       )}
                     </div>
                     <div>
-                      <p className="font-medium">@{account.username}</p>
+                      <p className="font-medium">{account.username.startsWith('@') ? account.username : `@${account.username}`}</p>
                       <div className="flex items-center gap-2">
                         <span className="text-sm text-muted-foreground capitalize">{account.platform}</span>
                         {tokenStatus && TokenIcon && (

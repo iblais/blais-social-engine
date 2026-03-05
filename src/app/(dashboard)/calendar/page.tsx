@@ -217,7 +217,7 @@ export default function CalendarPage() {
                 </Badge>
                 {selectedPost.social_accounts && (
                   <Badge variant="outline">
-                    @{selectedPost.social_accounts.username}
+                    {selectedPost.social_accounts.username.startsWith('@') ? selectedPost.social_accounts.username : `@${selectedPost.social_accounts.username}`}
                   </Badge>
                 )}
                 {selectedPost.social_accounts && (
