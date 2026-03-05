@@ -1,0 +1,15 @@
+name: Publish Due Posts
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger post-due cron
+        run: |
+          curl -sf "${{ secrets.APP_URL }}/api/cron/post-due" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
