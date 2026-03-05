@@ -13,8 +13,17 @@ interface PostWithMetrics {
   status: string;
   platform: string;
   published_at: string | null;
+  scheduled_at: string | null;
   post_metrics: { impressions: number; reach: number; likes: number; comments: number; shares: number; saves: number; engagement_rate: number }[];
 }
+
+const STATUS_COLORS: Record<string, string> = {
+  posted: 'bg-green-500/20 text-green-400',
+  scheduled: 'bg-blue-500/20 text-blue-400',
+  failed: 'bg-red-500/20 text-red-400',
+  retry: 'bg-yellow-500/20 text-yellow-400',
+  publishing: 'bg-purple-500/20 text-purple-400',
+};
 
 const PLATFORM_COLORS: Record<string, string> = {
   instagram: '#E1306C',
@@ -47,9 +56,9 @@ export default function AnalyticsPage() {
   const load = useCallback(async () => {
     let query = supabase
       .from('posts')
-      .select('id, caption, status, platform, published_at, post_metrics(impressions, reach, likes, comments, shares, saves, engagement_rate)')
-      .eq('status', 'posted')
-      .order('published_at', { ascending: false })
+      .select('id, caption, status, platform, published_at, scheduled_at, post_metrics(impressions, reach, likes, comments, shares, saves, engagement_rate)')
+      .in('status', ['posted', 'scheduled', 'failed', 'retry', 'publishing'])
+      .order('scheduled_at', { ascending: false })
       .limit(200);
 
     if (activeBrandId && accountIds.length) {
@@ -93,10 +102,13 @@ export default function AnalyticsPage() {
 
   // Per-platform summary for the breakdown section
   const platformBreakdown = useMemo(() => {
-    const map: Record<string, { posts: number; likes: number; comments: number; reach: number; avgEngagement: number }> = {};
+    const map: Record<string, { total: number; posted: number; scheduled: number; failed: number; likes: number; comments: number; reach: number; avgEngagement: number }> = {};
     posts.forEach(p => {
-      if (!map[p.platform]) map[p.platform] = { posts: 0, likes: 0, comments: 0, reach: 0, avgEngagement: 0 };
-      map[p.platform].posts++;
+      if (!map[p.platform]) map[p.platform] = { total: 0, posted: 0, scheduled: 0, failed: 0, likes: 0, comments: 0, reach: 0, avgEngagement: 0 };
+      map[p.platform].total++;
+      if (p.status === 'posted') map[p.platform].posted++;
+      else if (p.status === 'scheduled') map[p.platform].scheduled++;
+      else if (p.status === 'failed' || p.status === 'retry') map[p.platform].failed++;
       const m = p.post_metrics?.[0];
       if (m) {
         map[p.platform].likes += m.likes;
@@ -105,9 +117,9 @@ export default function AnalyticsPage() {
         map[p.platform].avgEngagement += m.engagement_rate;
       }
     });
-    // Calculate average engagement
     Object.keys(map).forEach(k => {
-      if (map[k].posts > 0) map[k].avgEngagement = map[k].avgEngagement / map[k].posts;
+      const posted = map[k].posted;
+      if (posted > 0) map[k].avgEngagement = map[k].avgEngagement / posted;
     });
     return map;
   }, [posts]);
@@ -181,16 +193,25 @@ export default function AnalyticsPage() {
                     <div className="flex items-center gap-2 mb-2">
                       <span className="w-3 h-3 rounded-full" style={{ backgroundColor: PLATFORM_COLORS[plat] || '#888' }} />
                       <span className="font-medium text-sm">{PLATFORM_LABELS[plat] || plat}</span>
-                      <Badge variant="secondary" className="text-xs ml-auto">{s.posts} posts</Badge>
+                      <Badge variant="secondary" className="text-xs ml-auto">{s.total} posts</Badge>
                     </div>
-                    <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
-                      <div className="flex items-center gap-1"><Heart className="h-3 w-3" />{s.likes.toLocaleString()}</div>
-                      <div className="flex items-center gap-1"><MessageCircle className="h-3 w-3" />{s.comments.toLocaleString()}</div>
-                      <div className="flex items-center gap-1"><Eye className="h-3 w-3" />{s.reach.toLocaleString()}</div>
+                    <div className="flex gap-1.5 mb-2 flex-wrap">
+                      {s.posted > 0 && <Badge variant="secondary" className="text-[10px] bg-green-500/20 text-green-400">{s.posted} posted</Badge>}
+                      {s.scheduled > 0 && <Badge variant="secondary" className="text-[10px] bg-blue-500/20 text-blue-400">{s.scheduled} scheduled</Badge>}
+                      {s.failed > 0 && <Badge variant="secondary" className="text-[10px] bg-red-500/20 text-red-400">{s.failed} failed</Badge>}
                     </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      Avg engagement: {(s.avgEngagement * 100).toFixed(1)}%
-                    </div>
+                    {s.posted > 0 && (
+                      <>
+                        <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+                          <div className="flex items-center gap-1"><Heart className="h-3 w-3" />{s.likes.toLocaleString()}</div>
+                          <div className="flex items-center gap-1"><MessageCircle className="h-3 w-3" />{s.comments.toLocaleString()}</div>
+                          <div className="flex items-center gap-1"><Eye className="h-3 w-3" />{s.reach.toLocaleString()}</div>
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          Avg engagement: {(s.avgEngagement * 100).toFixed(1)}%
+                        </div>
+                      </>
+                    )}
                   </div>
                 );
               })}
@@ -201,21 +222,23 @@ export default function AnalyticsPage() {
 
       {/* Post list */}
       <Card>
-        <CardHeader><CardTitle>Top Posts {activePlatform ? `- ${PLATFORM_LABELS[activePlatform]}` : ''}</CardTitle></CardHeader>
+        <CardHeader><CardTitle>All Posts {activePlatform ? `- ${PLATFORM_LABELS[activePlatform]}` : ''}</CardTitle></CardHeader>
         <CardContent>
           {!filtered.length ? (
-            <p className="text-muted-foreground text-center py-8">No published posts with metrics yet.</p>
+            <p className="text-muted-foreground text-center py-8">No posts yet.</p>
           ) : (
             <div className="space-y-3">
               {filtered.map(p => {
                 const m = p.post_metrics?.[0];
+                const date = p.published_at || p.scheduled_at;
                 return (
                   <div key={p.id} className="flex items-center justify-between p-3 rounded-lg border">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{p.caption?.substring(0, 80) || 'No caption'}</p>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <span className="w-2 h-2 rounded-full" style={{ backgroundColor: PLATFORM_COLORS[p.platform] || '#888' }} />
-                        <p className="text-xs text-muted-foreground capitalize">{PLATFORM_LABELS[p.platform] || p.platform} &middot; {p.published_at ? new Date(p.published_at).toLocaleDateString() : '—'}</p>
+                        <p className="text-xs text-muted-foreground">{PLATFORM_LABELS[p.platform] || p.platform} &middot; {date ? new Date(date).toLocaleDateString() : '—'}</p>
+                        <Badge variant="secondary" className={`text-[10px] ${STATUS_COLORS[p.status] || ''}`}>{p.status}</Badge>
                       </div>
                     </div>
                     {m ? (
@@ -226,7 +249,7 @@ export default function AnalyticsPage() {
                         <Badge variant="secondary" className="text-xs">{(m.engagement_rate * 100).toFixed(1)}%</Badge>
                       </div>
                     ) : (
-                      <Badge variant="secondary" className="text-xs">No metrics</Badge>
+                      <Badge variant="secondary" className="text-[10px] text-muted-foreground">—</Badge>
                     )}
                   </div>
                 );

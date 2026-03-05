@@ -3,10 +3,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Recycle, Copy, Heart, MessageCircle, Eye } from 'lucide-react';
+import { Recycle, Heart, MessageCircle, Eye, Sparkles, Loader2 } from 'lucide-react';
 import { useBrandAccounts } from '@/lib/hooks/use-brand-accounts';
 
 interface PostWithMetrics {
@@ -42,21 +42,50 @@ export default function EvergreenPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function recycle(post: PostWithMetrics) {
+  async function reimagine(post: PostWithMetrics) {
     setLoading(post.id);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { toast.error('Not authenticated'); setLoading(null); return; }
-    const { error } = await supabase.from('posts').insert({
-      user_id: user.id,
-      account_id: post.account_id,
-      platform: post.platform,
-      caption: post.caption,
-      status: 'draft',
-      media_type: 'image',
-      meta: { recycled_from: post.id },
-    });
-    if (error) toast.error(error.message);
-    else toast.success('Post cloned to drafts!');
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { toast.error('Not authenticated'); setLoading(null); return; }
+
+      // Use AI to create a fresh new caption inspired by the original
+      const res = await fetch('/api/ai/caption', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic: `Create a completely fresh and new caption inspired by this high-performing post. DO NOT copy it — reimagine the same theme/topic with a new angle, new hooks, and fresh language. Original post: "${post.caption?.substring(0, 500)}"`,
+          platform: post.platform,
+          includeHashtags: true,
+          includeEmojis: true,
+          includeCTA: true,
+        }),
+      });
+
+      let newCaption: string;
+      if (res.ok) {
+        const data = await res.json();
+        newCaption = data.caption;
+      } else {
+        // Fallback if AI fails — still create a draft but with original caption as starting point
+        newCaption = post.caption || '';
+        toast.info('AI unavailable — created draft with original caption for editing');
+      }
+
+      const { error } = await supabase.from('posts').insert({
+        user_id: user.id,
+        account_id: post.account_id,
+        platform: post.platform,
+        caption: newCaption,
+        status: 'draft',
+        media_type: 'image',
+        meta: { evergreen_from: post.id, ai_reimagined: res.ok },
+      });
+
+      if (error) toast.error(error.message);
+      else toast.success('New AI-reimagined post created as draft!');
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
     setLoading(null);
   }
 
@@ -70,7 +99,7 @@ export default function EvergreenPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Evergreen Recycling</h1>
-        <p className="text-muted-foreground">Clone your top-performing posts to repost them</p>
+        <p className="text-muted-foreground">AI reimagines your top posts as fresh new content</p>
       </div>
 
       {!sorted.length ? (
@@ -79,6 +108,7 @@ export default function EvergreenPage() {
         <div className="space-y-3">
           {sorted.map((post, i) => {
             const m = post.post_metrics?.[0];
+            const isLoading = loading === post.id;
             return (
               <Card key={post.id}>
                 <CardContent className="flex items-center justify-between py-4">
@@ -100,9 +130,12 @@ export default function EvergreenPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     {m && <Badge variant="secondary">{(m.engagement_rate * 100).toFixed(1)}%</Badge>}
-                    <Button size="sm" onClick={() => recycle(post)} disabled={loading === post.id}>
-                      <Recycle className="h-3.5 w-3.5 mr-1" />
-                      {loading === post.id ? 'Cloning...' : 'Recycle'}
+                    <Button size="sm" onClick={() => reimagine(post)} disabled={isLoading}>
+                      {isLoading ? (
+                        <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />Creating...</>
+                      ) : (
+                        <><Sparkles className="h-3.5 w-3.5 mr-1" />Reimagine</>
+                      )}
                     </Button>
                   </div>
                 </CardContent>
