@@ -95,6 +95,9 @@ export default function AccountsPage() {
     if (success === 'instagram' && connected) {
       toast.success(`Connected: ${decodeURIComponent(connected)}`);
       window.history.replaceState({}, '', '/settings/accounts');
+    } else if (success === 'facebook' && connected) {
+      toast.success(`Facebook Pages connected: ${decodeURIComponent(connected)}`);
+      window.history.replaceState({}, '', '/settings/accounts');
     } else if (success === 'youtube') {
       toast.success('YouTube channel connected!');
       window.history.replaceState({}, '', '/settings/accounts');
@@ -414,6 +417,12 @@ export default function AccountsPage() {
             className="bg-gradient-to-r from-purple-500 via-pink-500 to-orange-500 hover:from-purple-600 hover:via-pink-600 hover:to-orange-600 text-white"
           >
             Connect Instagram & Facebook
+          </Button>
+          <Button
+            onClick={() => window.location.href = '/api/auth/facebook'}
+            className="bg-[#1877F2] hover:bg-[#166FE5] text-white"
+          >
+            Connect Facebook Pages
           </Button>
           <Button
             onClick={() => window.location.href = '/api/auth/youtube'}
