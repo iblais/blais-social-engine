@@ -12,7 +12,13 @@ interface ContainerResponse {
 }
 
 const GRAPH_API_VERSION = 'v22.0';
-const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
+
+/** Instagram Login tokens (IGA...) use graph.instagram.com; Facebook tokens (EAA...) use graph.facebook.com */
+function getGraphBase(token: string): string {
+  return token.startsWith('IGA')
+    ? `https://graph.instagram.com/${GRAPH_API_VERSION}`
+    : `https://graph.facebook.com/${GRAPH_API_VERSION}`;
+}
 
 async function graphPost(url: string, body: Record<string, string>, token: string) {
   const res = await fetch(url, {
@@ -39,9 +45,10 @@ async function waitForContainer(
   token: string,
   maxAttempts = 30
 ): Promise<void> {
+  const base = getGraphBase(token);
   for (let i = 0; i < maxAttempts; i++) {
     const res = await fetch(
-      `${GRAPH_BASE}/${containerId}?fields=status_code`,
+      `${base}/${containerId}?fields=status_code`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
     const data = await res.json();
@@ -58,6 +65,7 @@ async function waitForContainer(
 
 export async function publishInstagramPost(payload: PostPayload): Promise<string> {
   const { igUserId, accessToken, caption, imageUrl, mediaType, carouselUrls } = payload;
+  const base = getGraphBase(accessToken);
 
   let containerId: string;
 
@@ -67,7 +75,7 @@ export async function publishInstagramPost(payload: PostPayload): Promise<string
     for (const url of carouselUrls) {
       const isVideo = url.match(/\.(mp4|mov|avi)$/i);
       const item: ContainerResponse = await graphPost(
-        `${GRAPH_BASE}/${igUserId}/media`,
+        `${base}/${igUserId}/media`,
         {
           ...(isVideo
             ? { media_type: 'VIDEO', video_url: url }
@@ -82,7 +90,7 @@ export async function publishInstagramPost(payload: PostPayload): Promise<string
 
     // Create carousel container
     const carousel: ContainerResponse = await graphPost(
-      `${GRAPH_BASE}/${igUserId}/media`,
+      `${base}/${igUserId}/media`,
       {
         media_type: 'CAROUSEL',
         caption,
@@ -93,7 +101,7 @@ export async function publishInstagramPost(payload: PostPayload): Promise<string
     containerId = carousel.id;
   } else if (mediaType === 'video') {
     const container: ContainerResponse = await graphPost(
-      `${GRAPH_BASE}/${igUserId}/media`,
+      `${base}/${igUserId}/media`,
       {
         media_type: 'REELS',
         video_url: imageUrl,
@@ -105,7 +113,7 @@ export async function publishInstagramPost(payload: PostPayload): Promise<string
   } else {
     // Single image
     const container: ContainerResponse = await graphPost(
-      `${GRAPH_BASE}/${igUserId}/media`,
+      `${base}/${igUserId}/media`,
       {
         image_url: imageUrl,
         caption,
@@ -120,7 +128,7 @@ export async function publishInstagramPost(payload: PostPayload): Promise<string
 
   // Publish
   const result = await graphPost(
-    `${GRAPH_BASE}/${igUserId}/media_publish`,
+    `${base}/${igUserId}/media_publish`,
     { creation_id: containerId },
     accessToken
   );
