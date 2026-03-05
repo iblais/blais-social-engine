@@ -1,6 +1,18 @@
 export type PostStatus = 'draft' | 'scheduled' | 'publishing' | 'posted' | 'failed' | 'retry';
-export type Platform = 'instagram' | 'facebook' | 'bluesky' | 'pinterest' | 'tiktok' | 'youtube' | 'twitter';
+export type Platform = 'instagram' | 'facebook' | 'bluesky' | 'pinterest' | 'tiktok' | 'youtube' | 'twitter' | 'linkedin';
 export type MediaType = 'image' | 'video' | 'carousel';
+
+export interface Brand {
+  id: string;
+  user_id: string;
+  name: string;
+  slug: string;
+  color: string;
+  avatar_url: string | null;
+  drive_folder: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
 export interface Profile {
   id: string;
@@ -23,6 +35,7 @@ export interface SocialAccount {
   refresh_token: string | null;
   token_expires_at: string | null;
   is_active: boolean;
+  brand_id: string | null;
   meta: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;

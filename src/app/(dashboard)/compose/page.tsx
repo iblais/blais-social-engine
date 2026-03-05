@@ -12,7 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { ImagePlus, Clock, Save, Trash2, ArrowLeft, Check } from 'lucide-react';
 import type { SocialAccount, PostMedia } from '@/types/database';
-import { useAccountStore } from '@/lib/store/account-store';
+import { useBrandAccounts } from '@/lib/hooks/use-brand-accounts';
 
 // Platform config
 const PLATFORM_META: Record<string, { icon: string; label: string; color: string; charLimit: number; postTypes: { value: string; label: string }[] }> = {
@@ -23,31 +23,8 @@ const PLATFORM_META: Record<string, { icon: string; label: string; color: string
   tiktok:    { icon: 'TK', label: 'TikTok',    color: '#000000', charLimit: 2200, postTypes: [{ value: 'post', label: 'Post' }] },
   bluesky:   { icon: 'BS', label: 'Bluesky',   color: '#0085FF', charLimit: 300, postTypes: [{ value: 'post', label: 'Post' }] },
   pinterest: { icon: 'PN', label: 'Pinterest',  color: '#E60023', charLimit: 500, postTypes: [{ value: 'pin', label: 'Pin' }] },
+  linkedin:  { icon: 'LI', label: 'LinkedIn',   color: '#0A66C2', charLimit: 3000, postTypes: [{ value: 'post', label: 'Post' }] },
 };
-
-// Group accounts by brand name (fuzzy match on username root)
-function groupAccountsByBrand(accounts: SocialAccount[]): Record<string, SocialAccount[]> {
-  const brands: Record<string, SocialAccount[]> = {};
-  for (const acc of accounts) {
-    // Normalize: lowercase, remove @ and spaces
-    const norm = (acc.display_name || acc.username).toLowerCase().replace(/[@\s_-]/g, '');
-    // Try to find existing brand key that matches
-    let matched = false;
-    for (const key of Object.keys(brands)) {
-      const keyNorm = key.toLowerCase().replace(/[@\s_-]/g, '');
-      if (norm.includes(keyNorm) || keyNorm.includes(norm) || norm === keyNorm) {
-        brands[key].push(acc);
-        matched = true;
-        break;
-      }
-    }
-    if (!matched) {
-      const brandName = acc.display_name || acc.username;
-      brands[brandName] = [acc];
-    }
-  }
-  return brands;
-}
 
 export default function ComposePage() {
   const [editId, setEditId] = useState<string | null>(null);
@@ -57,7 +34,6 @@ export default function ComposePage() {
   const [mediaPreviews, setMediaPreviews] = useState<string[]>([]);
   const [existingMedia, setExistingMedia] = useState<PostMedia[]>([]);
   const [removedMediaIds, setRemovedMediaIds] = useState<string[]>([]);
-  const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingPost, setLoadingPost] = useState(false);
 
@@ -68,34 +44,10 @@ export default function ComposePage() {
   // Which platform preview is shown
   const [previewPlatform, setPreviewPlatform] = useState<string>('instagram');
 
-  const { activeAccountId } = useAccountStore();
+  const { accounts: brandAccounts } = useBrandAccounts();
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = createClient();
-
-  // Load accounts
-  const loadData = useCallback(async () => {
-    const { data: accts } = await supabase
-      .from('social_accounts')
-      .select('*')
-      .eq('is_active', true)
-      .order('platform');
-    setAccounts(accts || []);
-  }, [supabase]);
-
-  useEffect(() => { loadData(); }, [loadData]);
-
-  // Get brand accounts for the active brand
-  const brandAccounts = useMemo(() => {
-    if (!activeAccountId || !accounts.length) return accounts;
-    const activeAcc = accounts.find((a) => a.id === activeAccountId);
-    if (!activeAcc) return accounts;
-    const brands = groupAccountsByBrand(accounts);
-    for (const accs of Object.values(brands)) {
-      if (accs.some((a) => a.id === activeAccountId)) return accs;
-    }
-    return [activeAcc];
-  }, [accounts, activeAccountId]);
 
   // Auto-enable all brand accounts when brand changes (only for new posts)
   useEffect(() => {
@@ -212,7 +164,7 @@ export default function ComposePage() {
 
       if (editId) {
         // Update single post
-        const acc = accounts.find((a) => enabledAccountIds.has(a.id));
+        const acc = brandAccounts.find((a) => enabledAccountIds.has(a.id));
         const { error } = await supabase.from('posts').update({
           caption,
           media_type: mediaType,
@@ -239,7 +191,7 @@ export default function ComposePage() {
         // Create one post per enabled account
         let created = 0;
         for (const accId of enabled) {
-          const acc = accounts.find((a) => a.id === accId);
+          const acc = brandAccounts.find((a) => a.id === accId);
           if (!acc) continue;
 
           const { data: post, error: postErr } = await supabase.from('posts').insert({
@@ -365,7 +317,7 @@ export default function ComposePage() {
           );
         })}
         {!brandAccounts.length && (
-          <p className="text-sm text-muted-foreground px-2">Select a brand in the sidebar first</p>
+          <p className="text-sm text-muted-foreground px-2">No accounts connected — go to Settings to connect platforms</p>
         )}
       </div>
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createClient as createServerSupabase } from '@/lib/supabase/server';
 
 /**
  * Instagram OAuth callback — Instagram Direct Login flow.
@@ -84,9 +85,10 @@ export async function GET(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // Get user ID
-    const { data: profiles } = await supabase.from('profiles').select('id').limit(1);
-    const userId = profiles?.[0]?.id;
+    // Get authenticated user from session cookie
+    const authClient = await createServerSupabase();
+    const { data: { user } } = await authClient.auth.getUser();
+    const userId = user?.id;
 
     if (!userId) {
       return NextResponse.redirect(

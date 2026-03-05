@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createClient as createServerSupabase } from '@/lib/supabase/server';
 
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get('code');
@@ -39,15 +40,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL('/settings/accounts?error=no_channel', req.url));
   }
 
-  // Store in Supabase using service role (we don't have user session in OAuth callback)
+  // Store in Supabase using service role for data writes
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
-  // Get the user — for now use the first/only user since this is a single-user app
-  const { data: profiles } = await supabase.from('profiles').select('id').limit(1);
-  const userId = profiles?.[0]?.id;
+  // Get authenticated user from session cookie
+  const authClient = await createServerSupabase();
+  const { data: { user } } = await authClient.auth.getUser();
+  const userId = user?.id;
 
   if (!userId) {
     return NextResponse.redirect(new URL('/settings/accounts?error=no_user', req.url));

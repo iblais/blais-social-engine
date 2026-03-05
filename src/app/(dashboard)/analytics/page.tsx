@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { TrendingUp, Eye, Heart, MessageCircle, Share2, Bookmark } from 'lucide-react';
-import { useAccountStore } from '@/lib/store/account-store';
+import { useBrandAccounts } from '@/lib/hooks/use-brand-accounts';
 
 interface PostWithMetrics {
   id: string;
@@ -19,7 +19,7 @@ interface PostWithMetrics {
 export default function AnalyticsPage() {
   const [posts, setPosts] = useState<PostWithMetrics[]>([]);
   const [totals, setTotals] = useState({ impressions: 0, reach: 0, likes: 0, comments: 0, shares: 0, saves: 0 });
-  const { activeAccountId } = useAccountStore();
+  const { accountIds, activeBrandId } = useBrandAccounts();
   const supabase = createClient();
 
   const load = useCallback(async () => {
@@ -30,8 +30,8 @@ export default function AnalyticsPage() {
       .order('published_at', { ascending: false })
       .limit(50);
 
-    if (activeAccountId) {
-      query = query.eq('account_id', activeAccountId);
+    if (activeBrandId && accountIds.length) {
+      query = query.in('account_id', accountIds);
     }
 
     const { data } = await query;
@@ -52,7 +52,7 @@ export default function AnalyticsPage() {
       }
     });
     setTotals(t);
-  }, [supabase, activeAccountId]);
+  }, [supabase, activeBrandId, accountIds]);
 
   useEffect(() => { load(); }, [load]);
 

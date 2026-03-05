@@ -25,7 +25,7 @@ import {
   isToday,
 } from 'date-fns';
 import type { Post, PostMedia } from '@/types/database';
-import { useAccountStore } from '@/lib/store/account-store';
+import { useBrandAccounts } from '@/lib/hooks/use-brand-accounts';
 
 interface PostWithRelations extends Post {
   social_accounts?: { username: string; platform: string } | null;
@@ -37,7 +37,7 @@ export default function CalendarPage() {
   const [posts, setPosts] = useState<PostWithRelations[]>([]);
   const [selectedPost, setSelectedPost] = useState<PostWithRelations | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const { activeAccountId } = useAccountStore();
+  const { accountIds, activeBrandId } = useBrandAccounts();
   const supabase = createClient();
   const router = useRouter();
 
@@ -52,13 +52,13 @@ export default function CalendarPage() {
       .or(`scheduled_at.lte.${end},published_at.lte.${end}`)
       .order('scheduled_at', { ascending: true });
 
-    if (activeAccountId) {
-      query = query.eq('account_id', activeAccountId);
+    if (activeBrandId && accountIds.length) {
+      query = query.in('account_id', accountIds);
     }
 
     const { data } = await query;
     setPosts(data || []);
-  }, [supabase, currentMonth, activeAccountId]);
+  }, [supabase, currentMonth, activeBrandId, accountIds]);
 
   useEffect(() => { loadPosts(); }, [loadPosts]);
 

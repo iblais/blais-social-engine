@@ -1,11 +1,11 @@
 import { create } from 'zustand';
 
 interface AccountStore {
-  activeAccountId: string | null; // null = all accounts
-  setActiveAccount: (id: string | null) => void;
+  activeBrandId: string | null; // null = all brands
+  setActiveBrand: (id: string | null) => void;
 }
 
 export const useAccountStore = create<AccountStore>((set) => ({
-  activeAccountId: null,
-  setActiveAccount: (id) => set({ activeAccountId: id }),
+  activeBrandId: null,
+  setActiveBrand: (id) => set({ activeBrandId: id }),
 }));

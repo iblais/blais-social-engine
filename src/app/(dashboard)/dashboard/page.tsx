@@ -2,14 +2,14 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { useAccountStore } from '@/lib/store/account-store';
+import { useBrandAccounts } from '@/lib/hooks/use-brand-accounts';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { CalendarDays, TrendingUp, Send, AlertCircle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 export default function DashboardPage() {
-  const { activeAccountId } = useAccountStore();
+  const { accountIds, activeBrandId } = useBrandAccounts();
   const supabase = createClient();
   const [scheduledCount, setScheduledCount] = useState(0);
   const [postedCount, setPostedCount] = useState(0);
@@ -23,11 +23,11 @@ export default function DashboardPage() {
     let qFailed = supabase.from('posts').select('*', { count: 'exact', head: true }).eq('status', 'failed');
     let qRecent = supabase.from('posts').select('*, social_accounts(username, platform)').order('created_at', { ascending: false }).limit(10);
 
-    if (activeAccountId) {
-      qScheduled = qScheduled.eq('account_id', activeAccountId);
-      qPosted = qPosted.eq('account_id', activeAccountId);
-      qFailed = qFailed.eq('account_id', activeAccountId);
-      qRecent = qRecent.eq('account_id', activeAccountId);
+    if (activeBrandId && accountIds.length) {
+      qScheduled = qScheduled.in('account_id', accountIds);
+      qPosted = qPosted.in('account_id', accountIds);
+      qFailed = qFailed.in('account_id', accountIds);
+      qRecent = qRecent.in('account_id', accountIds);
     }
 
     const [r1, r2, r3, r4, r5] = await Promise.all([
@@ -42,8 +42,8 @@ export default function DashboardPage() {
     setPostedCount(r2.count ?? 0);
     setFailedCount(r3.count ?? 0);
     setRecentPosts(r4.data || []);
-    setAccountCount(r5.data?.length ?? 0);
-  }, [supabase, activeAccountId]);
+    setAccountCount(activeBrandId ? accountIds.length : (r5.data?.length ?? 0));
+  }, [supabase, activeBrandId, accountIds]);
 
   useEffect(() => { load(); }, [load]);
 
