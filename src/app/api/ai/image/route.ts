@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Gemini API key not configured. Add it in Settings.' }, { status: 400 });
   }
 
-  const fullPrompt = `Create a high-quality social media image: ${prompt}${style ? `. Style: ${style}` : ''}. Make it visually appealing and suitable for Instagram/social media.`;
+  const fullPrompt = `Create a high-quality social media image: ${prompt}${style && style !== 'none' ? `. Style: ${style}` : ''}. Make it visually appealing and suitable for Instagram/social media.`;
 
   try {
     const dataUrl = await geminiGenerateImage(fullPrompt, apiKey);

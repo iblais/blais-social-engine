@@ -10,17 +10,37 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Globe } from 'lucide-react';
 import type { SocialAccount } from '@/types/database';
 
-const platformIcons: Record<string, string> = {
-  instagram: 'IG',
-  facebook: 'FB',
-  tiktok: 'TK',
-  twitter: 'X',
-  youtube: 'YT',
-  bluesky: 'BS',
-  pinterest: 'PN',
+const BRAND_COLORS = [
+  '#D72638', '#3498DB', '#2ECC71', '#9B59B6',
+  '#F39C12', '#1ABC9C', '#E67E22', '#E74C3C',
+];
+
+const platformLabels: Record<string, string> = {
+  instagram: 'Instagram',
+  facebook: 'Facebook',
+  tiktok: 'TikTok',
+  twitter: 'Twitter / X',
+  youtube: 'YouTube',
+  bluesky: 'Bluesky',
+  pinterest: 'Pinterest',
 };
+
+function AccountAvatar({ account, index, size = 'md' }: { account: SocialAccount; index: number; size?: 'md' | 'lg' }) {
+  const color = BRAND_COLORS[index % BRAND_COLORS.length];
+  const dim = size === 'lg' ? 'h-9 w-9 text-sm' : 'h-7 w-7 text-xs';
+  const letter = (account.display_name || account.username || '?')[0].toUpperCase();
+  return (
+    <span
+      className={`${dim} flex items-center justify-center rounded-full font-bold text-white shrink-0`}
+      style={{ backgroundColor: color }}
+    >
+      {letter}
+    </span>
+  );
+}
 
 export function AccountSwitcher() {
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
@@ -42,30 +62,65 @@ export function AccountSwitcher() {
 
   if (!accounts.length) return null;
 
+  const activeAccount = accounts.find((a) => a.id === activeAccountId);
+  const activeIndex = activeAccount ? accounts.indexOf(activeAccount) : -1;
+
   return (
     <div className="px-3 py-2">
       <Select value={activeAccountId ?? 'all'} onValueChange={handleChange}>
-        <SelectTrigger className="w-full">
-          <SelectValue placeholder="All Accounts" />
+        <SelectTrigger className="w-full h-auto py-2">
+          <SelectValue>
+            {activeAccount ? (
+              <span className="flex items-center gap-2.5">
+                <span className="relative">
+                  <AccountAvatar account={activeAccount} index={activeIndex} />
+                  <span
+                    className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-background"
+                    style={{ backgroundColor: BRAND_COLORS[activeIndex % BRAND_COLORS.length] }}
+                  />
+                </span>
+                <span className="flex flex-col items-start leading-tight">
+                  <span className="text-sm font-semibold">@{activeAccount.username}</span>
+                  <span className="text-[10px] text-muted-foreground">{platformLabels[activeAccount.platform] || activeAccount.platform}</span>
+                </span>
+              </span>
+            ) : (
+              <span className="flex items-center gap-2.5">
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted">
+                  <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                </span>
+                <span className="flex flex-col items-start leading-tight">
+                  <span className="text-sm font-semibold">All Accounts</span>
+                  <span className="text-[10px] text-muted-foreground">{accounts.length} connected</span>
+                </span>
+              </span>
+            )}
+          </SelectValue>
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="all">
-            <span className="flex items-center gap-2">
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-bold">
-                *
+            <span className="flex items-center gap-2.5 py-0.5">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted">
+                <Globe className="h-3.5 w-3.5 text-muted-foreground" />
               </span>
-              All Accounts
+              <span className="flex flex-col items-start leading-tight">
+                <span className="text-sm font-medium">All Accounts</span>
+                <span className="text-[10px] text-muted-foreground">{accounts.length} connected</span>
+              </span>
             </span>
           </SelectItem>
-          {accounts.map((a) => (
+          {accounts.map((a, i) => (
             <SelectItem key={a.id} value={a.id}>
-              <span className="flex items-center gap-2">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
-                  {platformIcons[a.platform] || a.platform[0].toUpperCase()}
+              <span className="flex items-center gap-2.5 py-0.5">
+                <span
+                  className={`relative rounded-full ${a.id === activeAccountId ? 'ring-2 ring-offset-1 ring-offset-background' : ''}`}
+                  style={a.id === activeAccountId ? { ['--tw-ring-color' as string]: BRAND_COLORS[i % BRAND_COLORS.length] } : undefined}
+                >
+                  <AccountAvatar account={a} index={i} />
                 </span>
-                @{a.username}
-                <span className="text-muted-foreground text-xs capitalize">
-                  {a.platform}
+                <span className="flex flex-col items-start leading-tight">
+                  <span className="text-sm font-medium">@{a.username}</span>
+                  <span className="text-[10px] text-muted-foreground">{platformLabels[a.platform] || a.platform}</span>
                 </span>
               </span>
             </SelectItem>

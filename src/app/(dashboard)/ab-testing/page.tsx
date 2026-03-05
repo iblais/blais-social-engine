@@ -60,6 +60,15 @@ export default function ABTestingPage() {
     toast.success('Deleted'); load();
   }
 
+  async function pickWinner(id: string, winner: 'A' | 'B') {
+    const { error } = await supabase
+      .from('ab_tests')
+      .update({ winner, status: 'completed' })
+      .eq('id', id);
+    if (error) toast.error(error.message);
+    else { toast.success(`Variant ${winner} wins!`); load(); }
+  }
+
   const statusColors: Record<string, string> = {
     active: 'bg-blue-500/20 text-blue-400',
     completed: 'bg-green-500/20 text-green-400',
@@ -123,13 +132,23 @@ export default function ABTestingPage() {
                   <Button variant="ghost" size="icon" onClick={() => remove(test.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div className={`p-3 rounded-lg border ${test.winner === 'A' ? 'border-primary' : ''}`}>
+                  <div className={`p-3 rounded-lg border ${test.winner === 'A' ? 'border-primary ring-2 ring-primary/30' : ''}`}>
                     <p className="text-xs font-medium mb-1">Variant A</p>
                     <p className="text-sm text-muted-foreground">{test.variant_a?.substring(0, 120)}...</p>
+                    {test.status === 'active' && (
+                      <Button size="sm" variant="outline" className="mt-2 text-xs h-7" onClick={() => pickWinner(test.id, 'A')}>
+                        <Trophy className="h-3 w-3 mr-1" />Pick A
+                      </Button>
+                    )}
                   </div>
-                  <div className={`p-3 rounded-lg border ${test.winner === 'B' ? 'border-primary' : ''}`}>
+                  <div className={`p-3 rounded-lg border ${test.winner === 'B' ? 'border-primary ring-2 ring-primary/30' : ''}`}>
                     <p className="text-xs font-medium mb-1">Variant B</p>
                     <p className="text-sm text-muted-foreground">{test.variant_b?.substring(0, 120)}...</p>
+                    {test.status === 'active' && (
+                      <Button size="sm" variant="outline" className="mt-2 text-xs h-7" onClick={() => pickWinner(test.id, 'B')}>
+                        <Trophy className="h-3 w-3 mr-1" />Pick B
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardContent>

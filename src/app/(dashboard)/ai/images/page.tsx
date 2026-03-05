@@ -64,7 +64,7 @@ export default function AIImagesPage() {
               <Select value={style} onValueChange={setStyle}>
                 <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="none">None</SelectItem>
                   <SelectItem value="photorealistic">Photorealistic</SelectItem>
                   <SelectItem value="minimalist flat design">Minimalist</SelectItem>
                   <SelectItem value="watercolor painting">Watercolor</SelectItem>

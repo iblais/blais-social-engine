@@ -34,6 +34,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from '@/components/ui/sidebar';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
@@ -75,6 +76,7 @@ type NavItem = { title: string; href: string; icon: React.ElementType };
 
 function NavGroup({ label, items }: { label: string; items: NavItem[] }) {
   const pathname = usePathname();
+  const { setOpenMobile, isMobile } = useSidebar();
   return (
     <SidebarGroup>
       <SidebarGroupLabel>{label}</SidebarGroupLabel>
@@ -83,7 +85,7 @@ function NavGroup({ label, items }: { label: string; items: NavItem[] }) {
           {items.map((item) => (
             <SidebarMenuItem key={item.href}>
               <SidebarMenuButton asChild isActive={pathname === item.href || pathname.startsWith(item.href + '/')}>
-                <Link href={item.href}>
+                <Link href={item.href} onClick={() => { if (isMobile) setOpenMobile(false); }}>
                   <item.icon className="h-4 w-4" />
                   <span>{item.title}</span>
                 </Link>

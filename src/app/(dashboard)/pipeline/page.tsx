@@ -68,10 +68,25 @@ export default function PipelinePage() {
   }
 
   async function aiScore(id: string) {
-    const score = Math.floor(Math.random() * 40) + 60; // placeholder — would call AI API
-    await supabase.from('content_pipeline').update({ score, stage: 'scored' }).eq('id', id);
-    toast.success(`Scored: ${score}/100`);
-    load();
+    const item = items.find((i) => i.id === id);
+    if (!item) return;
+
+    toast.info('Scoring with AI...');
+    try {
+      const res = await fetch('/api/ai/score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: item.title }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Score failed');
+
+      await supabase.from('content_pipeline').update({ score: data.score, stage: 'scored' }).eq('id', id);
+      toast.success(`Scored: ${data.score}/100${data.reason ? ' — ' + data.reason : ''}`);
+      load();
+    } catch (err) {
+      toast.error(`Score failed: ${(err as Error).message}`);
+    }
   }
 
   return (
