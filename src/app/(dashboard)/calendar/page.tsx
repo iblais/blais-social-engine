@@ -18,25 +18,32 @@ import {
   isToday,
 } from 'date-fns';
 import type { Post } from '@/types/database';
+import { useAccountStore } from '@/lib/store/account-store';
 
 export default function CalendarPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [posts, setPosts] = useState<Post[]>([]);
+  const { activeAccountId } = useAccountStore();
   const supabase = createClient();
 
   const loadPosts = useCallback(async () => {
     const start = startOfMonth(currentMonth).toISOString();
     const end = endOfMonth(currentMonth).toISOString();
 
-    const { data } = await supabase
+    let query = supabase
       .from('posts')
       .select('*, social_accounts(username, platform)')
       .or(`scheduled_at.gte.${start},published_at.gte.${start}`)
       .or(`scheduled_at.lte.${end},published_at.lte.${end}`)
       .order('scheduled_at', { ascending: true });
 
+    if (activeAccountId) {
+      query = query.eq('account_id', activeAccountId);
+    }
+
+    const { data } = await query;
     setPosts(data || []);
-  }, [supabase, currentMonth]);
+  }, [supabase, currentMonth, activeAccountId]);
 
   useEffect(() => { loadPosts(); }, [loadPosts]);
 

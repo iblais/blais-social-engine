@@ -17,6 +17,7 @@ import {
 import { format } from 'date-fns';
 import { Trash2, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAccountStore } from '@/lib/store/account-store';
 interface PostRow {
   id: string;
   caption: string;
@@ -31,6 +32,7 @@ const STATUS_TABS = ['all', 'draft', 'scheduled', 'posted', 'failed'] as const;
 export default function QueuePage() {
   const [posts, setPosts] = useState<PostRow[]>([]);
   const [activeTab, setActiveTab] = useState<string>('all');
+  const { activeAccountId } = useAccountStore();
   const supabase = createClient();
 
   const loadPosts = useCallback(async () => {
@@ -43,10 +45,13 @@ export default function QueuePage() {
     if (activeTab !== 'all') {
       query = query.eq('status', activeTab);
     }
+    if (activeAccountId) {
+      query = query.eq('account_id', activeAccountId);
+    }
 
     const { data } = await query;
     setPosts(data || []);
-  }, [supabase, activeTab]);
+  }, [supabase, activeTab, activeAccountId]);
 
   useEffect(() => { loadPosts(); }, [loadPosts]);
 

@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/sidebar';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
+import { AccountSwitcher } from '@/components/account-switcher';
 
 const mainNav = [
   { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -118,6 +119,7 @@ export function AppSidebar() {
           </div>
         </Link>
       </SidebarHeader>
+      <AccountSwitcher />
       <SidebarContent>
         <NavGroup label="Main" items={mainNav} />
         <NavGroup label="Content" items={contentNav} />

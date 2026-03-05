@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { Recycle, Copy, Heart, MessageCircle, Eye } from 'lucide-react';
+import { useAccountStore } from '@/lib/store/account-store';
 
 interface PostWithMetrics {
   id: string;
@@ -20,17 +21,24 @@ interface PostWithMetrics {
 export default function EvergreenPage() {
   const [posts, setPosts] = useState<PostWithMetrics[]>([]);
   const [loading, setLoading] = useState<string | null>(null);
+  const { activeAccountId } = useAccountStore();
   const supabase = createClient();
 
   const load = useCallback(async () => {
-    const { data } = await supabase
+    let query = supabase
       .from('posts')
       .select('id, caption, platform, account_id, published_at, post_metrics(likes, comments, reach, engagement_rate)')
       .eq('status', 'posted')
       .order('published_at', { ascending: false })
       .limit(50);
+
+    if (activeAccountId) {
+      query = query.eq('account_id', activeAccountId);
+    }
+
+    const { data } = await query;
     setPosts(data || []);
-  }, [supabase]);
+  }, [supabase, activeAccountId]);
 
   useEffect(() => { load(); }, [load]);
 

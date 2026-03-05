@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { ImagePlus, Send, Clock, Save } from 'lucide-react';
 import type { SocialAccount, ContentPillar, HashtagGroup } from '@/types/database';
+import { useAccountStore } from '@/lib/store/account-store';
 
 export default function ComposePage() {
   const [caption, setCaption] = useState('');
@@ -26,6 +27,7 @@ export default function ComposePage() {
   const [pillars, setPillars] = useState<ContentPillar[]>([]);
   const [hashtagGroups, setHashtagGroups] = useState<HashtagGroup[]>([]);
   const [loading, setLoading] = useState(false);
+  const { activeAccountId } = useAccountStore();
   const router = useRouter();
   const supabase = createClient();
 
@@ -38,8 +40,14 @@ export default function ComposePage() {
     setAccounts(accts || []);
     setPillars(plrs || []);
     setHashtagGroups(hgs || []);
-    if (accts?.length && !accountId) setAccountId(accts[0].id);
-  }, [supabase, accountId]);
+    if (accts?.length && !accountId) {
+      // Auto-select the globally active account, or fall back to first
+      const defaultId = activeAccountId && accts.some((a: SocialAccount) => a.id === activeAccountId)
+        ? activeAccountId
+        : accts[0].id;
+      setAccountId(defaultId);
+    }
+  }, [supabase, accountId, activeAccountId]);
 
   useEffect(() => { loadData(); }, [loadData]);
 

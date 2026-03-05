@@ -1,33 +1,57 @@
-import { createClient } from '@/lib/supabase/server';
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { createClient } from '@/lib/supabase/client';
+import { useAccountStore } from '@/lib/store/account-store';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { CalendarDays, TrendingUp, Send, AlertCircle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
-export default async function DashboardPage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+export default function DashboardPage() {
+  const { activeAccountId } = useAccountStore();
+  const supabase = createClient();
+  const [scheduledCount, setScheduledCount] = useState(0);
+  const [postedCount, setPostedCount] = useState(0);
+  const [failedCount, setFailedCount] = useState(0);
+  const [accountCount, setAccountCount] = useState(0);
+  const [recentPosts, setRecentPosts] = useState<any[]>([]);
 
-  // Fetch counts for KPI cards
-  const [
-    { count: scheduledCount },
-    { count: postedCount },
-    { count: failedCount },
-    { data: recentPosts },
-    { data: accounts },
-  ] = await Promise.all([
-    supabase.from('posts').select('*', { count: 'exact', head: true }).eq('status', 'scheduled'),
-    supabase.from('posts').select('*', { count: 'exact', head: true }).eq('status', 'posted'),
-    supabase.from('posts').select('*', { count: 'exact', head: true }).eq('status', 'failed'),
-    supabase.from('posts').select('*, social_accounts(username, platform)').order('created_at', { ascending: false }).limit(10),
-    supabase.from('social_accounts').select('*').eq('is_active', true),
-  ]);
+  const load = useCallback(async () => {
+    let qScheduled = supabase.from('posts').select('*', { count: 'exact', head: true }).eq('status', 'scheduled');
+    let qPosted = supabase.from('posts').select('*', { count: 'exact', head: true }).eq('status', 'posted');
+    let qFailed = supabase.from('posts').select('*', { count: 'exact', head: true }).eq('status', 'failed');
+    let qRecent = supabase.from('posts').select('*, social_accounts(username, platform)').order('created_at', { ascending: false }).limit(10);
+
+    if (activeAccountId) {
+      qScheduled = qScheduled.eq('account_id', activeAccountId);
+      qPosted = qPosted.eq('account_id', activeAccountId);
+      qFailed = qFailed.eq('account_id', activeAccountId);
+      qRecent = qRecent.eq('account_id', activeAccountId);
+    }
+
+    const [r1, r2, r3, r4, r5] = await Promise.all([
+      qScheduled,
+      qPosted,
+      qFailed,
+      qRecent,
+      supabase.from('social_accounts').select('*').eq('is_active', true),
+    ]);
+
+    setScheduledCount(r1.count ?? 0);
+    setPostedCount(r2.count ?? 0);
+    setFailedCount(r3.count ?? 0);
+    setRecentPosts(r4.data || []);
+    setAccountCount(r5.data?.length ?? 0);
+  }, [supabase, activeAccountId]);
+
+  useEffect(() => { load(); }, [load]);
 
   const kpis = [
-    { title: 'Scheduled', value: scheduledCount ?? 0, icon: CalendarDays, color: 'text-blue-600' },
-    { title: 'Posted', value: postedCount ?? 0, icon: Send, color: 'text-green-600' },
-    { title: 'Failed', value: failedCount ?? 0, icon: AlertCircle, color: 'text-red-600' },
-    { title: 'Accounts', value: accounts?.length ?? 0, icon: TrendingUp, color: 'text-purple-600' },
+    { title: 'Scheduled', value: scheduledCount, icon: CalendarDays, color: 'text-blue-600' },
+    { title: 'Posted', value: postedCount, icon: Send, color: 'text-green-600' },
+    { title: 'Failed', value: failedCount, icon: AlertCircle, color: 'text-red-600' },
+    { title: 'Accounts', value: accountCount, icon: TrendingUp, color: 'text-purple-600' },
   ];
 
   const statusColors: Record<string, string> = {
