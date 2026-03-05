@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -8,54 +8,126 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { ImagePlus, Clock, Save, Trash2, ArrowLeft } from 'lucide-react';
-import type { SocialAccount, ContentPillar, HashtagGroup, PostMedia } from '@/types/database';
+import { ImagePlus, Clock, Save, Trash2, ArrowLeft, Check } from 'lucide-react';
+import type { SocialAccount, PostMedia } from '@/types/database';
 import { useAccountStore } from '@/lib/store/account-store';
+
+// Platform config
+const PLATFORM_META: Record<string, { icon: string; label: string; color: string; charLimit: number; postTypes: { value: string; label: string }[] }> = {
+  instagram: { icon: 'IG', label: 'Instagram', color: '#E1306C', charLimit: 2200, postTypes: [{ value: 'post', label: 'Post' }, { value: 'reel', label: 'Reel' }, { value: 'story', label: 'Story' }] },
+  facebook:  { icon: 'FB', label: 'Facebook',  color: '#1877F2', charLimit: 16192, postTypes: [{ value: 'post', label: 'Post' }, { value: 'reel', label: 'Reel' }, { value: 'story', label: 'Story' }] },
+  twitter:   { icon: 'X',  label: 'Twitter/X', color: '#000000', charLimit: 280, postTypes: [{ value: 'post', label: 'Post' }] },
+  youtube:   { icon: 'YT', label: 'YouTube',   color: '#FF0000', charLimit: 5000, postTypes: [{ value: 'video', label: 'Video' }, { value: 'short', label: 'Short' }] },
+  tiktok:    { icon: 'TK', label: 'TikTok',    color: '#000000', charLimit: 2200, postTypes: [{ value: 'post', label: 'Post' }] },
+  bluesky:   { icon: 'BS', label: 'Bluesky',   color: '#0085FF', charLimit: 300, postTypes: [{ value: 'post', label: 'Post' }] },
+  pinterest: { icon: 'PN', label: 'Pinterest',  color: '#E60023', charLimit: 500, postTypes: [{ value: 'pin', label: 'Pin' }] },
+};
+
+// Group accounts by brand name (fuzzy match on username root)
+function groupAccountsByBrand(accounts: SocialAccount[]): Record<string, SocialAccount[]> {
+  const brands: Record<string, SocialAccount[]> = {};
+  for (const acc of accounts) {
+    // Normalize: lowercase, remove @ and spaces
+    const norm = (acc.display_name || acc.username).toLowerCase().replace(/[@\s_-]/g, '');
+    // Try to find existing brand key that matches
+    let matched = false;
+    for (const key of Object.keys(brands)) {
+      const keyNorm = key.toLowerCase().replace(/[@\s_-]/g, '');
+      if (norm.includes(keyNorm) || keyNorm.includes(norm) || norm === keyNorm) {
+        brands[key].push(acc);
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
+      const brandName = acc.display_name || acc.username;
+      brands[brandName] = [acc];
+    }
+  }
+  return brands;
+}
 
 export default function ComposePage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [caption, setCaption] = useState('');
-  const [accountId, setAccountId] = useState('');
-  const [pillarId, setPillarId] = useState('');
-  const [hashtagGroupId, setHashtagGroupId] = useState('');
   const [scheduledAt, setScheduledAt] = useState('');
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [mediaPreviews, setMediaPreviews] = useState<string[]>([]);
   const [existingMedia, setExistingMedia] = useState<PostMedia[]>([]);
   const [removedMediaIds, setRemovedMediaIds] = useState<string[]>([]);
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
-  const [pillars, setPillars] = useState<ContentPillar[]>([]);
-  const [hashtagGroups, setHashtagGroups] = useState<HashtagGroup[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingPost, setLoadingPost] = useState(false);
+
+  // Multi-platform: which accounts are enabled for this post
+  const [enabledAccountIds, setEnabledAccountIds] = useState<Set<string>>(new Set());
+  // Per-platform post type
+  const [postTypes, setPostTypes] = useState<Record<string, string>>({});
+  // Which platform preview is shown
+  const [previewPlatform, setPreviewPlatform] = useState<string>('instagram');
+
   const { activeAccountId } = useAccountStore();
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = createClient();
 
+  // Load accounts
+  const loadData = useCallback(async () => {
+    const { data: accts } = await supabase
+      .from('social_accounts')
+      .select('*')
+      .eq('is_active', true)
+      .order('platform');
+    setAccounts(accts || []);
+  }, [supabase]);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  // Get brand accounts for the active brand
+  const brandAccounts = useMemo(() => {
+    if (!activeAccountId || !accounts.length) return accounts;
+    const activeAcc = accounts.find((a) => a.id === activeAccountId);
+    if (!activeAcc) return accounts;
+    const brands = groupAccountsByBrand(accounts);
+    for (const accs of Object.values(brands)) {
+      if (accs.some((a) => a.id === activeAccountId)) return accs;
+    }
+    return [activeAcc];
+  }, [accounts, activeAccountId]);
+
+  // Auto-enable all brand accounts when brand changes (only for new posts)
+  useEffect(() => {
+    if (editId || !brandAccounts.length) return;
+    const newEnabled = new Set(brandAccounts.map((a) => a.id));
+    setEnabledAccountIds(newEnabled);
+    // Set default post types
+    const types: Record<string, string> = {};
+    for (const acc of brandAccounts) {
+      const meta = PLATFORM_META[acc.platform];
+      if (meta) types[acc.id] = meta.postTypes[0].value;
+    }
+    setPostTypes(types);
+    // Set preview to first platform
+    if (brandAccounts[0]) setPreviewPlatform(brandAccounts[0].platform);
+  }, [brandAccounts, editId]);
+
   // Load existing post for editing
   useEffect(() => {
     const postId = searchParams.get('id');
     if (!postId) return;
-
     setEditId(postId);
     setLoadingPost(true);
-
     (async () => {
       const { data: post } = await supabase
         .from('posts')
         .select('*, post_media(*)')
         .eq('id', postId)
         .single();
-
       if (post) {
         setCaption(post.caption || '');
-        setAccountId(post.account_id);
-        setPillarId(post.pillar_id || '');
-        setHashtagGroupId(post.hashtag_group_id || '');
+        setEnabledAccountIds(new Set([post.account_id]));
         if (post.scheduled_at) {
           const d = new Date(post.scheduled_at);
           const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
@@ -66,12 +138,13 @@ export default function ComposePage() {
         );
         setExistingMedia(media);
         setMediaPreviews(media.map((m: PostMedia) => m.media_url));
+        setPreviewPlatform(post.platform);
       }
       setLoadingPost(false);
     })();
   }, [searchParams, supabase]);
 
-  // Pre-fill date from calendar click (?date=YYYY-MM-DD)
+  // Pre-fill date from calendar
   useEffect(() => {
     const dateParam = searchParams.get('date');
     const postId = searchParams.get('id');
@@ -80,146 +153,116 @@ export default function ComposePage() {
     }
   }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const loadData = useCallback(async () => {
-    const [{ data: accts }, { data: plrs }, { data: hgs }] = await Promise.all([
-      supabase.from('social_accounts').select('*').eq('is_active', true),
-      supabase.from('content_pillars').select('*').eq('is_active', true),
-      supabase.from('hashtag_groups').select('*').eq('is_active', true),
-    ]);
-    setAccounts(accts || []);
-    setPillars(plrs || []);
-    setHashtagGroups(hgs || []);
-    if (accts?.length && !accountId && !searchParams.get('id')) {
-      const defaultId = activeAccountId && accts.some((a: SocialAccount) => a.id === activeAccountId)
-        ? activeAccountId
-        : accts[0].id;
-      setAccountId(defaultId);
-    }
-  }, [supabase, accountId, activeAccountId, searchParams]);
+  function toggleAccount(id: string) {
+    setEnabledAccountIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
-  useEffect(() => { loadData(); }, [loadData]);
+  function setPostType(accountId: string, type: string) {
+    setPostTypes((prev) => ({ ...prev, [accountId]: type }));
+  }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files || []);
     setMediaFiles((prev) => [...prev, ...files]);
     files.forEach((file) => {
       const reader = new FileReader();
-      reader.onload = (ev) => {
-        setMediaPreviews((prev) => [...prev, ev.target?.result as string]);
-      };
+      reader.onload = (ev) => setMediaPreviews((prev) => [...prev, ev.target?.result as string]);
       reader.readAsDataURL(file);
     });
   }
 
   function removeMedia(index: number) {
-    const existingCount = existingMedia.length - removedMediaIds.length;
-    if (index < existingMedia.length && !removedMediaIds.includes(existingMedia[index].id)) {
-      // Removing an existing media item
-      setRemovedMediaIds((prev) => [...prev, existingMedia[index].id]);
+    const liveExisting = existingMedia.filter((m) => !removedMediaIds.includes(m.id));
+    if (index < liveExisting.length) {
+      setRemovedMediaIds((prev) => [...prev, liveExisting[index].id]);
     } else {
-      // Removing a newly added file
-      const fileIndex = index - existingCount;
+      const fileIndex = index - liveExisting.length;
       setMediaFiles((prev) => prev.filter((_, i) => i !== fileIndex));
     }
     setMediaPreviews((prev) => prev.filter((_, i) => i !== index));
   }
 
+  // Get active char limit
+  const activeCharLimit = useMemo(() => {
+    const meta = PLATFORM_META[previewPlatform];
+    return meta?.charLimit || 2200;
+  }, [previewPlatform]);
+
   async function handleSubmit(status: 'draft' | 'scheduled') {
-    if (!accountId) {
-      toast.error('Please select an account');
+    const enabled = Array.from(enabledAccountIds);
+    if (!enabled.length) {
+      toast.error('Select at least one platform');
       return;
     }
     if (status === 'scheduled' && !scheduledAt) {
-      toast.error('Please select a schedule date');
+      toast.error('Pick a schedule date & time');
       return;
     }
 
     setLoading(true);
     try {
-      const account = accounts.find((a) => a.id === accountId);
       const totalMedia = existingMedia.filter((m) => !removedMediaIds.includes(m.id)).length + mediaFiles.length;
       const mediaType = totalMedia > 1 ? 'carousel' : totalMedia === 1 ? 'image' : 'image';
-
-      // Append hashtags to caption
-      let fullCaption = caption;
-      if (hashtagGroupId) {
-        const group = hashtagGroups.find((g) => g.id === hashtagGroupId);
-        if (group) {
-          fullCaption += '\n\n' + group.hashtags.map((h) => (h.startsWith('#') ? h : `#${h}`)).join(' ');
-        }
-      }
-
-      const postData = {
-        account_id: accountId,
-        platform: account?.platform || 'instagram',
-        caption: fullCaption,
-        media_type: mediaType,
-        status,
-        scheduled_at: status === 'scheduled' ? new Date(scheduledAt).toISOString() : null,
-        pillar_id: pillarId || null,
-        hashtag_group_id: hashtagGroupId || null,
-      };
-
-      let postId: string;
+      const scheduledIso = status === 'scheduled' ? new Date(scheduledAt).toISOString() : null;
 
       if (editId) {
-        // Update existing post
-        const { error: updateError } = await supabase
-          .from('posts')
-          .update(postData)
-          .eq('id', editId);
-        if (updateError) throw updateError;
-        postId = editId;
+        // Update single post
+        const acc = accounts.find((a) => enabledAccountIds.has(a.id));
+        const { error } = await supabase.from('posts').update({
+          caption,
+          media_type: mediaType,
+          status,
+          scheduled_at: scheduledIso,
+          account_id: acc?.id || editId,
+          platform: acc?.platform || 'instagram',
+        }).eq('id', editId);
+        if (error) throw error;
 
-        // Remove deleted media
+        // Handle removed media
         for (const mediaId of removedMediaIds) {
           const media = existingMedia.find((m) => m.id === mediaId);
-          if (media?.storage_path) {
-            await supabase.storage.from('media').remove([media.storage_path]);
-          }
+          if (media?.storage_path) await supabase.storage.from('media').remove([media.storage_path]);
           await supabase.from('post_media').delete().eq('id', mediaId);
         }
+
+        // Upload new files
+        const existingCount = existingMedia.filter((m) => !removedMediaIds.includes(m.id)).length;
+        await uploadMedia(editId, existingCount);
+
+        toast.success('Post updated!');
       } else {
-        // Create new post
-        const { data: post, error: postError } = await supabase
-          .from('posts')
-          .insert(postData)
-          .select()
-          .single();
-        if (postError) throw postError;
-        postId = post.id;
+        // Create one post per enabled account
+        let created = 0;
+        for (const accId of enabled) {
+          const acc = accounts.find((a) => a.id === accId);
+          if (!acc) continue;
+
+          const { data: post, error: postErr } = await supabase.from('posts').insert({
+            account_id: accId,
+            platform: acc.platform,
+            caption,
+            media_type: mediaType,
+            status,
+            scheduled_at: scheduledIso,
+          }).select('id').single();
+
+          if (postErr) {
+            console.error(`Failed for ${acc.username}:`, postErr.message);
+            continue;
+          }
+
+          await uploadMedia(post.id, 0);
+          created++;
+        }
+
+        toast.success(`${status === 'scheduled' ? 'Scheduled' : 'Saved'} to ${created} platform${created !== 1 ? 's' : ''}!`);
       }
 
-      // Upload new media files
-      const existingCount = existingMedia.filter((m) => !removedMediaIds.includes(m.id)).length;
-      for (let i = 0; i < mediaFiles.length; i++) {
-        const file = mediaFiles[i];
-        const ext = file.name.split('.').pop();
-        const storagePath = `posts/${postId}/${existingCount + i}.${ext}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from('media')
-          .upload(storagePath, file);
-        if (uploadError) throw uploadError;
-
-        const { data: { publicUrl } } = supabase.storage
-          .from('media')
-          .getPublicUrl(storagePath);
-
-        await supabase.from('post_media').insert({
-          post_id: postId,
-          media_url: publicUrl,
-          storage_path: storagePath,
-          media_type: file.type.startsWith('video') ? 'video' : 'image',
-          sort_order: existingCount + i,
-          file_size: file.size,
-        });
-      }
-
-      toast.success(editId
-        ? 'Post updated!'
-        : status === 'scheduled' ? 'Post scheduled!' : 'Draft saved!'
-      );
       router.push('/queue');
     } catch (err) {
       toast.error(`Error: ${(err as Error).message}`);
@@ -228,15 +271,31 @@ export default function ComposePage() {
     }
   }
 
+  async function uploadMedia(postId: string, startIndex: number) {
+    for (let i = 0; i < mediaFiles.length; i++) {
+      const file = mediaFiles[i];
+      const ext = file.name.split('.').pop();
+      const storagePath = `posts/${postId}/${startIndex + i}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from('media').upload(storagePath, file);
+      if (uploadError) { console.error('Upload error:', uploadError.message); continue; }
+      const { data: { publicUrl } } = supabase.storage.from('media').getPublicUrl(storagePath);
+      await supabase.from('post_media').insert({
+        post_id: postId,
+        media_url: publicUrl,
+        storage_path: storagePath,
+        media_type: file.type.startsWith('video') ? 'video' : 'image',
+        sort_order: startIndex + i,
+        file_size: file.size,
+      });
+    }
+  }
+
   async function handleDelete() {
     if (!editId) return;
     setLoading(true);
     try {
-      // Delete media from storage
       for (const m of existingMedia) {
-        if (m.storage_path) {
-          await supabase.storage.from('media').remove([m.storage_path]);
-        }
+        if (m.storage_path) await supabase.storage.from('media').remove([m.storage_path]);
       }
       await supabase.from('post_media').delete().eq('post_id', editId);
       await supabase.from('posts').delete().eq('id', editId);
@@ -250,219 +309,239 @@ export default function ComposePage() {
   }
 
   if (loadingPost) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <p className="text-muted-foreground">Loading post...</p>
-      </div>
-    );
+    return <div className="flex items-center justify-center py-20"><p className="text-muted-foreground">Loading post...</p></div>;
   }
 
+  const previewAccount = brandAccounts.find((a) => a.platform === previewPlatform);
+  const previewUsername = previewAccount?.username || 'you';
+
   return (
-    <div className="max-w-3xl mx-auto space-y-4 sm:space-y-6">
+    <div className="max-w-6xl mx-auto space-y-4">
+      {/* Header */}
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => router.back()} className="shrink-0">
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold">
-            {editId ? 'Edit Post' : 'Compose Post'}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {editId ? 'Update caption, schedule, or media' : 'Create and schedule a new post'}
-          </p>
-        </div>
+        <h1 className="text-xl sm:text-2xl font-bold">
+          {editId ? 'Edit Post' : 'Create New Post'}
+        </h1>
       </div>
 
-      <div className="grid gap-4 sm:gap-6 md:grid-cols-[1fr_280px]">
-        {/* Main form */}
+      {/* Platform selector bar */}
+      <div className="flex items-center gap-1.5 flex-wrap p-2 bg-muted/50 rounded-lg border">
+        {brandAccounts.map((acc) => {
+          const meta = PLATFORM_META[acc.platform];
+          if (!meta) return null;
+          const isEnabled = enabledAccountIds.has(acc.id);
+          const currentType = postTypes[acc.id] || meta.postTypes[0].value;
+
+          return (
+            <div key={acc.id} className="flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => { toggleAccount(acc.id); setPreviewPlatform(acc.platform); }}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-all ${
+                  isEnabled
+                    ? 'text-white shadow-sm'
+                    : 'text-muted-foreground bg-background border hover:bg-muted'
+                }`}
+                style={isEnabled ? { backgroundColor: meta.color } : undefined}
+              >
+                <span className="text-xs font-bold">{meta.icon}</span>
+                {isEnabled && <Check className="h-3 w-3" />}
+              </button>
+              {isEnabled && meta.postTypes.length > 1 && (
+                <select
+                  value={currentType}
+                  onChange={(e) => setPostType(acc.id, e.target.value)}
+                  className="text-[10px] bg-background border rounded px-1 py-0.5 h-6"
+                >
+                  {meta.postTypes.map((t) => (
+                    <option key={t.value} value={t.value}>{t.label}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          );
+        })}
+        {!brandAccounts.length && (
+          <p className="text-sm text-muted-foreground px-2">Select a brand in the sidebar first</p>
+        )}
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+        {/* Left: Editor */}
         <div className="space-y-4">
+          {/* Caption */}
           <Card>
-            <CardContent className="pt-4 sm:pt-6 space-y-4">
-              {/* Account selector */}
-              <div className="space-y-2">
-                <Label>Account</Label>
-                <Select value={accountId} onValueChange={setAccountId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select account" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {accounts.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        @{a.username} ({a.platform})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {!accounts.length && (
-                  <p className="text-xs text-muted-foreground">
-                    No accounts yet. Add one in Settings &gt; Accounts.
-                  </p>
-                )}
+            <CardContent className="pt-4 space-y-3">
+              <Textarea
+                placeholder="Write your caption..."
+                className="min-h-[200px] sm:min-h-[250px] resize-y border-0 shadow-none focus-visible:ring-0 text-base p-0"
+                value={caption}
+                onChange={(e) => setCaption(e.target.value)}
+              />
+              {/* Toolbar row */}
+              <div className="flex items-center justify-between border-t pt-2">
+                <div className="flex items-center gap-2">
+                  <label className="cursor-pointer hover:bg-muted rounded p-1.5 transition-colors">
+                    <ImagePlus className="h-5 w-5 text-muted-foreground" />
+                    <input type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleFileChange} />
+                  </label>
+                </div>
+                <span className={`text-xs ${caption.length > activeCharLimit ? 'text-destructive font-bold' : 'text-muted-foreground'}`}>
+                  {caption.length} / {activeCharLimit.toLocaleString()}
+                  <span className="ml-1 inline-block w-3 h-3 rounded-full align-middle" style={{ backgroundColor: PLATFORM_META[previewPlatform]?.color || '#888' }} />
+                </span>
               </div>
+            </CardContent>
+          </Card>
 
-              {/* Caption */}
-              <div className="space-y-2">
-                <Label>Caption</Label>
-                <Textarea
-                  placeholder="Write your caption..."
-                  className="min-h-[120px] sm:min-h-[150px] resize-y"
-                  value={caption}
-                  onChange={(e) => setCaption(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground text-right">
-                  {caption.length} / 2,200
-                </p>
-              </div>
-
-              {/* Media */}
-              <div className="space-y-2">
-                <Label>Media</Label>
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+          {/* Media grid */}
+          {mediaPreviews.length > 0 && (
+            <Card>
+              <CardContent className="pt-4">
+                <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
                   {mediaPreviews.map((src, i) => (
                     <div key={i} className="relative aspect-square rounded-lg overflow-hidden border">
                       <img src={src} alt="" className="object-cover w-full h-full" />
                       <button
                         onClick={() => removeMedia(i)}
-                        className="absolute top-1 right-1 bg-black/50 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-black/70 transition-colors"
+                        className="absolute top-1 right-1 bg-black/60 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-black/80"
                       >
                         &times;
                       </button>
                     </div>
                   ))}
                   <label className="aspect-square rounded-lg border-2 border-dashed flex items-center justify-center cursor-pointer hover:bg-muted/50 transition-colors">
-                    <ImagePlus className="h-6 w-6 text-muted-foreground" />
-                    <input
-                      type="file"
-                      accept="image/*,video/*"
-                      multiple
-                      className="hidden"
-                      onChange={handleFileChange}
-                    />
+                    <ImagePlus className="h-5 w-5 text-muted-foreground" />
+                    <input type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleFileChange} />
                   </label>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
 
-          {/* Mobile: Show schedule + actions inline */}
-          <div className="md:hidden space-y-4">
+          {/* Schedule + Actions (mobile) */}
+          <div className="lg:hidden space-y-3">
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Schedule</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Input
-                  type="datetime-local"
-                  value={scheduledAt}
-                  onChange={(e) => setScheduledAt(e.target.value)}
-                />
+              <CardContent className="pt-4">
+                <Label className="text-xs text-muted-foreground mb-1 block">Schedule Date & Time</Label>
+                <Input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} />
               </CardContent>
             </Card>
             <div className="flex gap-2">
-              <Button
-                onClick={() => handleSubmit('scheduled')}
-                disabled={loading}
-                className="flex-1"
-              >
+              <Button onClick={() => handleSubmit('scheduled')} disabled={loading} className="flex-1">
                 <Clock className="h-4 w-4 mr-2" />
-                {loading ? 'Saving...' : editId ? 'Update & Schedule' : 'Schedule'}
+                {loading ? 'Saving...' : editId ? 'Update' : `Schedule (${enabledAccountIds.size})`}
               </Button>
-              <Button
-                variant="outline"
-                onClick={() => handleSubmit('draft')}
-                disabled={loading}
-                className="flex-1"
-              >
-                <Save className="h-4 w-4 mr-2" />
-                {editId ? 'Save' : 'Draft'}
+              <Button variant="outline" onClick={() => handleSubmit('draft')} disabled={loading}>
+                <Save className="h-4 w-4 mr-1" />Draft
               </Button>
             </div>
             {editId && (
-              <Button variant="destructive" onClick={handleDelete} disabled={loading} className="w-full">
-                <Trash2 className="h-4 w-4 mr-2" />Delete Post
+              <Button variant="destructive" size="sm" onClick={handleDelete} disabled={loading} className="w-full">
+                <Trash2 className="h-4 w-4 mr-2" />Delete
               </Button>
             )}
           </div>
         </div>
 
-        {/* Desktop sidebar */}
-        <div className="hidden md:block space-y-4">
+        {/* Right: Preview + Schedule (desktop) */}
+        <div className="hidden lg:block space-y-4">
+          {/* Platform preview tabs */}
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm">Schedule</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Input
-                type="datetime-local"
-                value={scheduledAt}
-                onChange={(e) => setScheduledAt(e.target.value)}
-              />
+            <CardContent className="pt-4">
+              <div className="flex gap-1 mb-3 flex-wrap">
+                {Array.from(new Set(brandAccounts.filter((a) => enabledAccountIds.has(a.id)).map((a) => a.platform))).map((plat) => {
+                  const meta = PLATFORM_META[plat];
+                  if (!meta) return null;
+                  return (
+                    <button
+                      key={plat}
+                      type="button"
+                      onClick={() => setPreviewPlatform(plat)}
+                      className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                        previewPlatform === plat ? 'text-white ring-2 ring-offset-2' : 'text-muted-foreground bg-muted'
+                      }`}
+                      style={previewPlatform === plat ? { backgroundColor: meta.color, ['--tw-ring-color' as string]: meta.color } : undefined}
+                    >
+                      {meta.icon}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Mock preview */}
+              <div className="border rounded-xl p-4 bg-background">
+                <div className="flex items-center gap-2 mb-3">
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold"
+                    style={{ backgroundColor: PLATFORM_META[previewPlatform]?.color || '#888' }}
+                  >
+                    {(previewUsername[0] || '?').toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">{previewUsername}</p>
+                    <p className="text-[10px] text-muted-foreground">Just now</p>
+                  </div>
+                </div>
+
+                {/* Media preview */}
+                {mediaPreviews.length > 0 && (
+                  <div className="mb-3 rounded-lg overflow-hidden border aspect-square max-h-[200px]">
+                    <img src={mediaPreviews[0]} alt="" className="w-full h-full object-cover" />
+                  </div>
+                )}
+
+                {/* Caption preview */}
+                <p className="text-sm whitespace-pre-wrap break-words line-clamp-6">
+                  {caption || <span className="text-muted-foreground italic">Your caption here...</span>}
+                </p>
+              </div>
             </CardContent>
           </Card>
 
+          {/* Active platforms summary */}
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm">Content Pillar</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Select value={pillarId} onValueChange={setPillarId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="None" />
-                </SelectTrigger>
-                <SelectContent>
-                  {pillars.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      <span className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
-                        {p.name}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <CardContent className="pt-4">
+              <p className="text-xs font-medium text-muted-foreground mb-2">Posting to</p>
+              <div className="space-y-1.5">
+                {brandAccounts.filter((a) => enabledAccountIds.has(a.id)).map((acc) => {
+                  const meta = PLATFORM_META[acc.platform];
+                  return (
+                    <div key={acc.id} className="flex items-center gap-2 text-sm">
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: meta?.color || '#888' }} />
+                      <span className="font-medium">{meta?.label}</span>
+                      <span className="text-muted-foreground text-xs">@{acc.username}</span>
+                      <Badge variant="secondary" className="text-[10px] ml-auto capitalize">{postTypes[acc.id] || 'post'}</Badge>
+                    </div>
+                  );
+                })}
+                {enabledAccountIds.size === 0 && (
+                  <p className="text-xs text-muted-foreground">No platforms selected</p>
+                )}
+              </div>
             </CardContent>
           </Card>
 
+          {/* Schedule */}
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm">Hashtag Group</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Select value={hashtagGroupId} onValueChange={setHashtagGroupId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="None" />
-                </SelectTrigger>
-                <SelectContent>
-                  {hashtagGroups.map((g) => (
-                    <SelectItem key={g.id} value={g.id}>
-                      {g.name}
-                      <Badge variant="secondary" className="ml-2 text-xs">
-                        {g.hashtags.length}
-                      </Badge>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <CardContent className="pt-4 space-y-3">
+              <Label className="text-xs text-muted-foreground">Schedule Date & Time</Label>
+              <Input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} />
             </CardContent>
           </Card>
 
+          {/* Actions */}
           <div className="flex flex-col gap-2">
-            <Button
-              onClick={() => handleSubmit('scheduled')}
-              disabled={loading}
-              className="w-full"
-            >
+            <Button onClick={() => handleSubmit('scheduled')} disabled={loading} className="w-full">
               <Clock className="h-4 w-4 mr-2" />
-              {loading ? 'Saving...' : editId ? 'Update & Schedule' : 'Schedule'}
+              {loading ? 'Saving...' : editId ? 'Update & Schedule' : `Schedule to ${enabledAccountIds.size} platform${enabledAccountIds.size !== 1 ? 's' : ''}`}
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => handleSubmit('draft')}
-              disabled={loading}
-              className="w-full"
-            >
+            <Button variant="outline" onClick={() => handleSubmit('draft')} disabled={loading} className="w-full">
               <Save className="h-4 w-4 mr-2" />
-              {editId ? 'Save Changes' : 'Save Draft'}
+              {editId ? 'Save Changes' : 'Save as Draft'}
             </Button>
             {editId && (
               <Button variant="destructive" onClick={handleDelete} disabled={loading} className="w-full">
