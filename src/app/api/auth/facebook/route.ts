@@ -15,6 +15,8 @@ export async function GET() {
 
   const scopes = [
     'pages_show_list',
+    'pages_manage_posts',
+    'pages_read_engagement',
   ].join(',');
 
   const url = new URL('https://www.facebook.com/v22.0/dialog/oauth');
