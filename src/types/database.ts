@@ -154,3 +154,94 @@ export interface ActivityLog {
   details: Record<string, unknown> | null;
   created_at: string;
 }
+
+// File Organizer
+export interface FileSortLog {
+  id: string;
+  user_id: string;
+  file_name: string;
+  source_path: string | null;
+  dest_path: string;
+  brand_slug: string | null;
+  track: string | null;
+  batch: string | null;
+  day_num: number | null;
+  created_at: string;
+}
+
+// Engagement / DM Automation
+export type TriggerType = 'comment_keyword' | 'dm_keyword' | 'story_mention' | 'story_reply';
+export type MatchMode = 'exact' | 'contains' | 'starts_with' | 'regex';
+export type ConversationStatus = 'active' | 'paused' | 'closed';
+export type MessageDirection = 'inbound' | 'outbound';
+export type MessageStatus = 'sent' | 'delivered' | 'read' | 'failed';
+
+export interface DmRule {
+  id: string;
+  user_id: string;
+  account_id: string;
+  name: string;
+  trigger_type: TriggerType;
+  keywords: string[];
+  match_mode: MatchMode;
+  response_template: string;
+  dm_template: string | null;
+  ai_enabled: boolean;
+  ai_prompt: string | null;
+  cooldown_minutes: number;
+  priority: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DmConversation {
+  id: string;
+  account_id: string;
+  ig_user_id: string;
+  ig_username: string;
+  message_count: number;
+  last_message_at: string | null;
+  status: ConversationStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DmMessage {
+  id: string;
+  conversation_id: string;
+  direction: MessageDirection;
+  message_text: string;
+  rule_id: string | null;
+  is_automated: boolean;
+  ig_message_id: string | null;
+  status: MessageStatus;
+  created_at: string;
+}
+
+export interface CommentTracking {
+  id: string;
+  account_id: string;
+  post_id: string;
+  ig_comment_id: string;
+  ig_user_id: string;
+  ig_username: string;
+  comment_text: string;
+  reply_text: string | null;
+  rule_id: string | null;
+  dm_sent: boolean;
+  processed_at: string | null;
+  created_at: string;
+}
+
+export interface EngagementStats {
+  id: string;
+  account_id: string;
+  date: string;
+  comments_processed: number;
+  replies_sent: number;
+  dms_sent: number;
+  ai_replies: number;
+  rules_triggered: number;
+  created_at: string;
+}

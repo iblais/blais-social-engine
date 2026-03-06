@@ -22,6 +22,8 @@ import {
   FileText,
   Users,
   Key,
+  FolderTree,
+  MessageCircle,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -62,9 +64,14 @@ const aiNav = [
   { title: 'Content Ideas', href: '/ai/ideas', icon: Lightbulb },
 ];
 
+const toolsNav = [
+  { title: 'File Organizer', href: '/tools/organizer', icon: FolderTree },
+];
+
 const growthNav = [
   { title: 'A/B Testing', href: '/ab-testing', icon: FlaskConical },
   { title: 'Evergreen', href: '/evergreen', icon: Recycle },
+  { title: 'Engagement', href: '/engagement', icon: MessageCircle },
 ];
 
 const systemNav = [
@@ -126,6 +133,7 @@ export function AppSidebar() {
         <NavGroup label="Main" items={mainNav} />
         <NavGroup label="Content" items={contentNav} />
         <NavGroup label="AI" items={aiNav} />
+        <NavGroup label="Tools" items={toolsNav} />
         <NavGroup label="Growth" items={growthNav} />
         <NavGroup label="Settings" items={systemNav} />
       </SidebarContent>

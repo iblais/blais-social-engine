@@ -68,20 +68,14 @@ export default function MediaLibraryPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Media Library</h1>
-          <p className="text-muted-foreground">Upload and manage your images and videos</p>
-        </div>
-        <div className="flex gap-2">
-          <Input placeholder="Search..." value={filter} onChange={e => setFilter(e.target.value)} className="w-48" />
-          <label>
-            <Button asChild disabled={uploading}>
-              <span><Upload className="h-4 w-4 mr-2" />{uploading ? 'Uploading...' : 'Upload'}</span>
-            </Button>
-            <input type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleUpload} />
-          </label>
-        </div>
+      <div className="flex items-center justify-end gap-2">
+        <Input placeholder="Search..." value={filter} onChange={e => setFilter(e.target.value)} className="w-48" />
+        <label>
+          <Button asChild disabled={uploading}>
+            <span><Upload className="h-4 w-4 mr-2" />{uploading ? 'Uploading...' : 'Upload'}</span>
+          </Button>
+          <input type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleUpload} />
+        </label>
       </div>
 
       {!assets.length ? (
