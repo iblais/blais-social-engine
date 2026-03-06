@@ -8,11 +8,16 @@ import { refreshAccountToken, tokenNeedsRefresh } from '@/lib/meta/token-refresh
 
 export const maxDuration = 60;
 
-/**
- * Ensure the account's Meta token is fresh before posting.
- * Refreshes if expired or expiring within 7 days.
- * Returns the (possibly refreshed) access token.
- */
+/* ---------- helpers ---------- */
+
+class TokenError extends Error {
+  constructor(platform: string, original: string) {
+    super(`Token expired — reconnect ${platform} in Settings. Original: ${original}`);
+    this.name = 'TokenError';
+  }
+}
+
+/** Refresh a Twitter OAuth 2.0 token. */
 async function refreshTwitterToken(
   refreshToken: string,
   supabase: ReturnType<typeof createAdminClient>,
@@ -48,53 +53,75 @@ async function refreshTwitterToken(
   return data.access_token;
 }
 
+/**
+ * Ensure the account token is fresh before posting.
+ * THROWS on failure instead of silently returning expired token.
+ */
 async function ensureFreshToken(
-  account: { id: string; platform: string; access_token: string; refresh_token?: string | null; token_expires_at: string | null; meta?: Record<string, unknown> | null },
+  account: {
+    id: string;
+    platform: string;
+    access_token: string;
+    refresh_token?: string | null;
+    token_expires_at: string | null;
+    meta?: Record<string, unknown> | null;
+  },
   supabase: ReturnType<typeof createAdminClient>
 ): Promise<string> {
   // Bluesky uses app passwords — no refresh needed
-  if (account.platform === 'bluesky') {
-    return account.access_token;
-  }
+  if (account.platform === 'bluesky') return account.access_token;
 
-  // Facebook page tokens (from facebook_login) don't expire — skip refresh
+  // Facebook page tokens (from facebook_login) don't expire
   if (account.platform === 'facebook' && account.meta?.auth_method === 'facebook_login') {
     return account.access_token;
   }
 
-  // Check if token needs refresh
+  // Twitter tokens expire every 2 hours — ALWAYS refresh proactively
+  if (account.platform === 'twitter') {
+    if (!account.refresh_token) {
+      throw new TokenError('twitter', 'No refresh token available');
+    }
+    // Refresh if expiring within 30 minutes (twitter tokens are short-lived)
+    const needsRefresh = !account.token_expires_at ||
+      new Date(account.token_expires_at) <= new Date(Date.now() + 30 * 60 * 1000);
+    if (needsRefresh) {
+      console.log(`[post-due] Refreshing Twitter token for ${account.id}`);
+      return await refreshTwitterToken(account.refresh_token, supabase, account.id);
+    }
+    return account.access_token;
+  }
+
+  // Meta platforms (Instagram, Facebook) — refresh if within 7 days of expiry
   if (!tokenNeedsRefresh(account.token_expires_at)) {
     return account.access_token;
   }
 
-  try {
-    console.log(`[post-due] Refreshing token for account ${account.id} (${account.platform})`);
+  console.log(`[post-due] Refreshing ${account.platform} token for ${account.id}`);
+  const result = await refreshAccountToken(account.access_token, account.meta);
+  const tokenExpiresAt = new Date(Date.now() + result.expires_in * 1000).toISOString();
 
-    // Twitter uses its own OAuth 2.0 refresh flow
-    if (account.platform === 'twitter') {
-      if (!account.refresh_token) throw new Error('No refresh token for Twitter');
-      return await refreshTwitterToken(account.refresh_token, supabase, account.id);
-    }
+  await supabase.from('social_accounts').update({
+    access_token: result.access_token,
+    token_expires_at: tokenExpiresAt,
+  }).eq('id', account.id);
 
-    // Meta platforms (Instagram, Facebook)
-    const result = await refreshAccountToken(account.access_token, account.meta);
-    const tokenExpiresAt = new Date(Date.now() + result.expires_in * 1000).toISOString();
-
-    await supabase.from('social_accounts').update({
-      access_token: result.access_token,
-      token_expires_at: tokenExpiresAt,
-    }).eq('id', account.id);
-
-    console.log(`[post-due] Token refreshed for ${account.id}, expires ${tokenExpiresAt}`);
-    return result.access_token;
-  } catch (err) {
-    console.error(`[post-due] Token refresh failed for ${account.id}:`, (err as Error).message);
-    return account.access_token;
-  }
+  console.log(`[post-due] Token refreshed for ${account.id}, expires ${tokenExpiresAt}`);
+  return result.access_token;
 }
 
+/** Check if an error is a token/auth problem (don't retry these). */
+function isTokenError(message: string): boolean {
+  return /\b(190|401|403|OAuthException|token expired|unauthorized)\b/i.test(message);
+}
+
+/** Calculate exponential backoff: 5min, 15min, 45min based on retry_count. */
+function getBackoffMinutes(retryCount: number): number {
+  return Math.min(5 * Math.pow(3, retryCount), 60); // 5, 15, 45, capped at 60min
+}
+
+/* ---------- main cron handler ---------- */
+
 export async function GET(req: NextRequest) {
-  // Verify cron secret
   const authHeader = req.headers.get('authorization');
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -103,60 +130,76 @@ export async function GET(req: NextRequest) {
   const supabase = createAdminClient();
   const now = new Date().toISOString();
 
-  // Fetch posts that are due
+  // 1) Fetch scheduled posts that are due (up to 50)
   const { data: duePosts, error } = await supabase
     .from('posts')
     .select('*, social_accounts(*), post_media(*)')
     .eq('status', 'scheduled')
     .lte('scheduled_at', now)
     .order('scheduled_at', { ascending: true })
-    .limit(10);
+    .limit(50);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Also re-queue retries (posts that failed but have retries left, waiting 5+ min)
-  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  // 2) Fetch retry posts that have waited long enough (exponential backoff)
+  //    Instead of re-queuing, process them directly in this run
   const { data: retryPosts } = await supabase
     .from('posts')
-    .select('id')
+    .select('*, social_accounts(*), post_media(*)')
     .eq('status', 'retry')
-    .lt('updated_at', fiveMinutesAgo)
     .lt('retry_count', 3)
+    .order('updated_at', { ascending: true })
     .limit(20);
 
-  if (retryPosts?.length) {
-    await supabase
-      .from('posts')
-      .update({ status: 'scheduled', scheduled_at: new Date().toISOString() })
-      .in('id', retryPosts.map((p) => p.id));
-  }
+  // Filter retries that have waited long enough based on their retry count
+  const readyRetries = (retryPosts || []).filter((p) => {
+    const updatedAt = new Date(p.updated_at).getTime();
+    const backoffMs = getBackoffMinutes(p.retry_count || 0) * 60 * 1000;
+    return Date.now() - updatedAt >= backoffMs;
+  });
 
-  if (!duePosts?.length) {
+  // Combine due posts + ready retries
+  const allPosts = [...(duePosts || []), ...readyRetries];
+
+  if (!allPosts.length) {
     return NextResponse.json({
       message: 'No posts due',
       processed: 0,
-      retries_requeued: retryPosts?.length || 0,
+      failed: 0,
+      retries_checked: retryPosts?.length || 0,
     });
   }
 
   let processed = 0;
   let failed = 0;
+  const results: { id: string; status: string; error?: string }[] = [];
 
-  for (const post of duePosts) {
+  for (const post of allPosts) {
     const account = post.social_accounts;
-    if (!account) continue;
+    if (!account) {
+      // No account linked — mark as failed
+      await supabase.from('posts').update({
+        status: 'failed',
+        error_message: 'No social account linked to this post',
+      }).eq('id', post.id);
+      failed++;
+      continue;
+    }
 
     // Mark as publishing
-    await supabase
-      .from('posts')
-      .update({ status: 'publishing' })
-      .eq('id', post.id);
+    await supabase.from('posts').update({ status: 'publishing' }).eq('id', post.id);
 
     try {
-      // Refresh token if needed BEFORE posting
-      const freshToken = await ensureFreshToken(account, supabase);
+      // Refresh token — THROWS on failure instead of returning expired token
+      let freshToken: string;
+      try {
+        freshToken = await ensureFreshToken(account, supabase);
+      } catch (tokenErr) {
+        // Token errors are not retryable — fail immediately
+        throw new TokenError(account.platform, (tokenErr as Error).message);
+      }
 
       let platformPostId: string;
       const media = post.post_media || [];
@@ -164,7 +207,9 @@ export async function GET(req: NextRequest) {
 
       switch (account.platform) {
         case 'instagram': {
-          const carouselUrls = media.length > 1 ? media.map((m: { media_url: string }) => m.media_url) : undefined;
+          const carouselUrls = media.length > 1
+            ? media.map((m: { media_url: string }) => m.media_url)
+            : undefined;
           platformPostId = await publishInstagramPost({
             igUserId: account.platform_user_id,
             accessToken: freshToken,
@@ -176,11 +221,15 @@ export async function GET(req: NextRequest) {
           break;
         }
         case 'facebook': {
+          const fbMediaUrls = media.length > 1
+            ? media.map((m: { media_url: string }) => m.media_url)
+            : undefined;
           platformPostId = await publishFacebookPost({
             pageId: account.platform_user_id,
             accessToken: freshToken,
             caption: post.caption,
             imageUrl: primaryMedia?.media_url,
+            imageUrls: fbMediaUrls,
           });
           break;
         }
@@ -194,10 +243,14 @@ export async function GET(req: NextRequest) {
           break;
         }
         case 'twitter': {
+          const twitterMediaUrls = media.length > 1
+            ? media.slice(0, 4).map((m: { media_url: string }) => m.media_url)
+            : undefined;
           platformPostId = await publishTwitterPost({
             accessToken: freshToken,
             caption: post.caption,
             imageUrl: primaryMedia?.media_url,
+            imageUrls: twitterMediaUrls,
           });
           break;
         }
@@ -205,18 +258,14 @@ export async function GET(req: NextRequest) {
           throw new Error(`Unsupported platform: ${account.platform}`);
       }
 
-      // Mark as posted
-      await supabase
-        .from('posts')
-        .update({
-          status: 'posted',
-          published_at: new Date().toISOString(),
-          platform_post_id: platformPostId,
-          error_message: null,
-        })
-        .eq('id', post.id);
+      // Success — mark as posted
+      await supabase.from('posts').update({
+        status: 'posted',
+        published_at: new Date().toISOString(),
+        platform_post_id: platformPostId,
+        error_message: null,
+      }).eq('id', post.id);
 
-      // Log activity
       await supabase.from('activity_log').insert({
         user_id: post.user_id,
         action: 'post_published',
@@ -226,25 +275,30 @@ export async function GET(req: NextRequest) {
       });
 
       processed++;
+      results.push({ id: post.id, status: 'posted' });
     } catch (err) {
       const errorMessage = (err as Error).message;
       const newRetryCount = (post.retry_count || 0) + 1;
 
-      // If it's a token error (401/190), mark clearly so user knows to reconnect
-      const isTokenError = errorMessage.includes('190') || errorMessage.includes('401') || errorMessage.includes('OAuthException');
-
-      await supabase
-        .from('posts')
-        .update({
-          status: newRetryCount >= 3 ? 'failed' : 'retry',
-          error_message: isTokenError
-            ? `Token expired — reconnect ${account.platform} in Settings. Original: ${errorMessage}`
-            : errorMessage,
+      // Token errors: fail immediately, don't waste retries
+      if (err instanceof TokenError || isTokenError(errorMessage)) {
+        await supabase.from('posts').update({
+          status: 'failed',
+          error_message: err instanceof TokenError ? errorMessage
+            : `Token expired — reconnect ${account.platform} in Settings. Original: ${errorMessage}`,
           retry_count: newRetryCount,
-        })
-        .eq('id', post.id);
+        }).eq('id', post.id);
+      } else {
+        // Other errors: retry with exponential backoff (up to 3 attempts)
+        await supabase.from('posts').update({
+          status: newRetryCount >= 3 ? 'failed' : 'retry',
+          error_message: errorMessage,
+          retry_count: newRetryCount,
+        }).eq('id', post.id);
+      }
 
       failed++;
+      results.push({ id: post.id, status: 'failed', error: errorMessage });
     }
   }
 
@@ -252,6 +306,8 @@ export async function GET(req: NextRequest) {
     message: 'Done',
     processed,
     failed,
-    retries_requeued: retryPosts?.length || 0,
+    total: allPosts.length,
+    retries_processed: readyRetries.length,
+    results,
   });
 }

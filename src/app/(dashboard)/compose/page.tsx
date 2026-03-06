@@ -196,15 +196,20 @@ export default function ComposePage() {
       if (!user) { toast.error('Not authenticated'); setLoading(false); return; }
 
       const totalMedia = existingMedia.filter((m) => !removedMediaIds.includes(m.id)).length + mediaFiles.length;
-      const mediaType = totalMedia > 1 ? 'carousel' : totalMedia === 1 ? 'image' : 'image';
       const scheduledIso = status === 'scheduled' ? new Date(scheduledAt).toISOString() : null;
+
+      // Only Instagram supports 'carousel' media type; other platforms use 'image'
+      function getMediaType(platform: string): string {
+        if (totalMedia > 1 && platform === 'instagram') return 'carousel';
+        return totalMedia >= 1 ? 'image' : 'image';
+      }
 
       if (editId) {
         // Update single post
         const acc = brandAccounts.find((a) => enabledAccountIds.has(a.id));
         const { error } = await supabase.from('posts').update({
           caption,
-          media_type: mediaType,
+          media_type: getMediaType(acc?.platform || 'instagram'),
           status,
           scheduled_at: scheduledIso,
           account_id: acc?.id || editId,
@@ -236,7 +241,7 @@ export default function ComposePage() {
             account_id: accId,
             platform: acc.platform,
             caption,
-            media_type: mediaType,
+            media_type: getMediaType(acc.platform),
             status,
             scheduled_at: scheduledIso,
           }).select('id').single();
