@@ -48,7 +48,7 @@ export default function ComposePage() {
   const { accounts: brandAccounts } = useBrandAccounts();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   // Auto-enable all brand accounts when brand changes (only for new posts)
   useEffect(() => {
@@ -198,22 +198,30 @@ export default function ComposePage() {
       const totalMedia = existingMedia.filter((m) => !removedMediaIds.includes(m.id)).length + mediaFiles.length;
       const scheduledIso = status === 'scheduled' ? new Date(scheduledAt).toISOString() : null;
 
-      // Only Instagram supports 'carousel' media type; other platforms use 'image'
+      // Detect media type based on content and platform
       function getMediaType(platform: string): string {
+        const hasVideo = mediaFiles.some(f => f.type.startsWith('video')) ||
+          existingMedia.filter(m => !removedMediaIds.includes(m.id)).some(m => m.media_type === 'video');
+        if (hasVideo) return 'video';
         if (totalMedia > 1 && platform === 'instagram') return 'carousel';
-        return totalMedia >= 1 ? 'image' : 'image';
+        return 'image';
       }
 
       if (editId) {
         // Update single post
         const acc = brandAccounts.find((a) => enabledAccountIds.has(a.id));
+        if (!acc) {
+          toast.error('Select at least one platform');
+          setLoading(false);
+          return;
+        }
         const { error } = await supabase.from('posts').update({
           caption,
-          media_type: getMediaType(acc?.platform || 'instagram'),
+          media_type: getMediaType(acc.platform),
           status,
           scheduled_at: scheduledIso,
-          account_id: acc?.id || editId,
-          platform: acc?.platform || 'instagram',
+          account_id: acc.id,
+          platform: acc.platform,
         }).eq('id', editId);
         if (error) throw error;
 

@@ -47,7 +47,7 @@ export async function publishFacebookPost(payload: FacebookPostPayload): Promise
         `${GRAPH_BASE}/${pageId}/photos`,
         {
           url,
-          published: false as unknown as string,  // unpublished photo
+          published: false,  // unpublished photo
         },
         accessToken
       );

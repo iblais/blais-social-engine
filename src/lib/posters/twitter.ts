@@ -16,9 +16,10 @@ async function uploadMedia(accessToken: string, imageUrl: string): Promise<strin
   const imageBuffer = await imgRes.arrayBuffer();
   const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
 
+  const ext = contentType.includes('png') ? 'png' : contentType.includes('gif') ? 'gif' : 'jpg';
   const blob = new Blob([imageBuffer], { type: contentType });
   const form = new FormData();
-  form.append('media', blob, 'image.jpg');
+  form.append('media', blob, `image.${ext}`);
   form.append('media_category', 'tweet_image');
 
   const uploadRes = await fetch(`${TWITTER_UPLOAD}/media/upload.json`, {

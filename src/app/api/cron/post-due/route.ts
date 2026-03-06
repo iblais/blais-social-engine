@@ -286,7 +286,6 @@ export async function GET(req: NextRequest) {
           status: 'failed',
           error_message: err instanceof TokenError ? errorMessage
             : `Token expired — reconnect ${account.platform} in Settings. Original: ${errorMessage}`,
-          retry_count: newRetryCount,
         }).eq('id', post.id);
       } else {
         // Other errors: retry with exponential backoff (up to 3 attempts)
