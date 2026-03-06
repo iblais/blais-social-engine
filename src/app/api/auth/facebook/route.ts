@@ -14,10 +14,7 @@ export async function GET() {
   const redirectUri = `${appUrl}/api/auth/facebook/callback`;
 
   const scopes = [
-    'pages_manage_posts',
-    'pages_read_engagement',
     'pages_show_list',
-    'pages_read_user_content',
   ].join(',');
 
   const url = new URL('https://www.facebook.com/v22.0/dialog/oauth');
