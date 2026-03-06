@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { publishInstagramPost } from '@/lib/posters/instagram';
 import { publishFacebookPost } from '@/lib/posters/facebook';
 import { publishBlueskyPost } from '@/lib/posters/bluesky';
+import { publishTwitterPost } from '@/lib/posters/twitter';
 import { refreshAccountToken, tokenNeedsRefresh } from '@/lib/meta/token-refresh';
 
 export const maxDuration = 60;
@@ -12,12 +13,47 @@ export const maxDuration = 60;
  * Refreshes if expired or expiring within 7 days.
  * Returns the (possibly refreshed) access token.
  */
+async function refreshTwitterToken(
+  refreshToken: string,
+  supabase: ReturnType<typeof createAdminClient>,
+  accountId: string
+): Promise<string> {
+  const clientId = process.env.TWITTER_CLIENT_ID!;
+  const clientSecret = process.env.TWITTER_CLIENT_SECRET!;
+  const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+
+  const res = await fetch('https://api.twitter.com/2/oauth2/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Authorization: `Basic ${basicAuth}`,
+    },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+    }),
+  });
+
+  const data = await res.json();
+  if (!data.access_token) throw new Error(`Twitter refresh failed: ${JSON.stringify(data)}`);
+
+  const expiresAt = new Date(Date.now() + (data.expires_in || 7200) * 1000).toISOString();
+
+  await supabase.from('social_accounts').update({
+    access_token: data.access_token,
+    refresh_token: data.refresh_token || refreshToken,
+    token_expires_at: expiresAt,
+  }).eq('id', accountId);
+
+  return data.access_token;
+}
+
 async function ensureFreshToken(
-  account: { id: string; platform: string; access_token: string; token_expires_at: string | null; meta?: Record<string, unknown> | null },
+  account: { id: string; platform: string; access_token: string; refresh_token?: string | null; token_expires_at: string | null; meta?: Record<string, unknown> | null },
   supabase: ReturnType<typeof createAdminClient>
 ): Promise<string> {
-  // Only Meta platforms need token refresh
-  if (!['instagram', 'facebook'].includes(account.platform)) {
+  // Bluesky uses app passwords — no refresh needed
+  if (account.platform === 'bluesky') {
     return account.access_token;
   }
 
@@ -33,10 +69,17 @@ async function ensureFreshToken(
 
   try {
     console.log(`[post-due] Refreshing token for account ${account.id} (${account.platform})`);
+
+    // Twitter uses its own OAuth 2.0 refresh flow
+    if (account.platform === 'twitter') {
+      if (!account.refresh_token) throw new Error('No refresh token for Twitter');
+      return await refreshTwitterToken(account.refresh_token, supabase, account.id);
+    }
+
+    // Meta platforms (Instagram, Facebook)
     const result = await refreshAccountToken(account.access_token, account.meta);
     const tokenExpiresAt = new Date(Date.now() + result.expires_in * 1000).toISOString();
 
-    // Update the stored token
     await supabase.from('social_accounts').update({
       access_token: result.access_token,
       token_expires_at: tokenExpiresAt,
@@ -46,7 +89,6 @@ async function ensureFreshToken(
     return result.access_token;
   } catch (err) {
     console.error(`[post-due] Token refresh failed for ${account.id}:`, (err as Error).message);
-    // Fall back to existing token — it might still work
     return account.access_token;
   }
 }
@@ -146,6 +188,14 @@ export async function GET(req: NextRequest) {
           platformPostId = await publishBlueskyPost({
             handle: account.username,
             appPassword: freshToken,
+            caption: post.caption,
+            imageUrl: primaryMedia?.media_url,
+          });
+          break;
+        }
+        case 'twitter': {
+          platformPostId = await publishTwitterPost({
+            accessToken: freshToken,
             caption: post.caption,
             imageUrl: primaryMedia?.media_url,
           });

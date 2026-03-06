@@ -101,6 +101,9 @@ export default function AccountsPage() {
     } else if (success === 'youtube') {
       toast.success('YouTube channel connected!');
       window.history.replaceState({}, '', '/settings/accounts');
+    } else if (success === 'twitter' && connected) {
+      toast.success(`Twitter/X connected: @${decodeURIComponent(connected)}`);
+      window.history.replaceState({}, '', '/settings/accounts');
     } else if (error) {
       toast.error(`Connection failed: ${decodeURIComponent(error)}`);
       window.history.replaceState({}, '', '/settings/accounts');
@@ -430,6 +433,12 @@ export default function AccountsPage() {
             className="border-red-500 text-red-500 hover:bg-red-50"
           >
             Connect YouTube
+          </Button>
+          <Button
+            onClick={() => window.location.href = '/api/auth/twitter'}
+            className="bg-black hover:bg-gray-800 text-white"
+          >
+            Connect Twitter/X
           </Button>
         </CardContent>
       </Card>
