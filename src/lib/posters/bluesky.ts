@@ -8,6 +8,7 @@ interface BlueskyPostPayload {
   appPassword: string;  // app password stored as access_token
   caption: string;
   imageUrl?: string;
+  imageUrls?: string[];  // multi-image (up to 4 on Bluesky)
 }
 
 interface BlueskySession {
@@ -131,7 +132,7 @@ function parseFacets(text: string): Array<{
 }
 
 export async function publishBlueskyPost(payload: BlueskyPostPayload): Promise<string> {
-  const { handle, appPassword, caption, imageUrl } = payload;
+  const { handle, appPassword, caption, imageUrl, imageUrls } = payload;
 
   // Bluesky has a 300 grapheme limit
   const truncatedCaption = caption.length > 300 ? caption.slice(0, 297) + '...' : caption;
@@ -152,13 +153,30 @@ export async function publishBlueskyPost(payload: BlueskyPostPayload): Promise<s
     record.facets = facets;
   }
 
-  // Upload image if provided
-  if (imageUrl) {
-    const blob = await uploadImage(session.accessJwt, imageUrl);
-    record.embed = {
-      $type: 'app.bsky.embed.images',
-      images: [{ alt: '', image: blob }],
-    };
+  // Upload images — Bluesky supports up to 4 images per post
+  const urlsToUpload: string[] = [];
+  if (imageUrls && imageUrls.length > 1) {
+    urlsToUpload.push(...imageUrls.slice(0, 4));
+  } else if (imageUrl) {
+    urlsToUpload.push(imageUrl);
+  }
+
+  if (urlsToUpload.length > 0) {
+    const blobs = [];
+    for (const url of urlsToUpload) {
+      try {
+        const blob = await uploadImage(session.accessJwt, url);
+        blobs.push({ alt: '', image: blob });
+      } catch (err) {
+        console.error(`Bluesky image upload failed for ${url}:`, (err as Error).message);
+      }
+    }
+    if (blobs.length > 0) {
+      record.embed = {
+        $type: 'app.bsky.embed.images',
+        images: blobs,
+      };
+    }
   }
 
   // Create the post

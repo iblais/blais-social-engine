@@ -5,6 +5,7 @@ import { publishFacebookPost } from '@/lib/posters/facebook';
 import { publishBlueskyPost } from '@/lib/posters/bluesky';
 import { publishTwitterPost } from '@/lib/posters/twitter';
 import { refreshAccountToken, tokenNeedsRefresh } from '@/lib/meta/token-refresh';
+import { geminiVision } from '@/lib/ai/gemini';
 
 export const maxDuration = 60;
 
@@ -234,11 +235,39 @@ export async function GET(req: NextRequest) {
           break;
         }
         case 'bluesky': {
+          // Bluesky supports up to 4 images per post
+          const bskyMediaUrls = media.length > 1
+            ? media.slice(0, 4).map((m: { media_url: string }) => m.media_url)
+            : undefined;
+
+          let bskyCaption = post.caption;
+
+          // For carousel posts with >4 images, extract text from remaining slides
+          if (media.length > 4) {
+            try {
+              const apiKey = process.env.GEMINI_API_KEY;
+              if (apiKey) {
+                const extraUrls = media.slice(4).map((m: { media_url: string }) => m.media_url);
+                const extracted = await geminiVision(
+                  'Extract all visible text from these images. Return ONLY the text content, separated by newlines. No commentary.',
+                  extraUrls,
+                  apiKey
+                );
+                if (extracted?.trim()) {
+                  bskyCaption = `${post.caption}\n\n${extracted.trim()}`;
+                }
+              }
+            } catch (err) {
+              console.error('[post-due] Bluesky text extraction failed, using original caption:', (err as Error).message);
+            }
+          }
+
           platformPostId = await publishBlueskyPost({
             handle: account.username,
             appPassword: freshToken,
-            caption: post.caption,
+            caption: bskyCaption,
             imageUrl: primaryMedia?.media_url,
+            imageUrls: bskyMediaUrls,
           });
           break;
         }
