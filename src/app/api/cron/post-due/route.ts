@@ -21,6 +21,11 @@ async function ensureFreshToken(
     return account.access_token;
   }
 
+  // Facebook page tokens (from facebook_login) don't expire — skip refresh
+  if (account.platform === 'facebook' && account.meta?.auth_method === 'facebook_login') {
+    return account.access_token;
+  }
+
   // Check if token needs refresh
   if (!tokenNeedsRefresh(account.token_expires_at)) {
     return account.access_token;

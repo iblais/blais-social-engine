@@ -1,4 +1,7 @@
+import sharp from 'sharp';
+
 const BSKY_API = 'https://bsky.social/xrpc';
+const BSKY_MAX_IMAGE_SIZE = 950_000; // ~950KB to stay safely under 1MB limit
 
 interface BlueskyPostPayload {
   handle: string;       // e.g. 'user.bsky.social'
@@ -28,25 +31,52 @@ async function createSession(handle: string, appPassword: string): Promise<Blues
   return { did: data.did, accessJwt: data.accessJwt };
 }
 
+/** Compress image to fit within Bluesky's ~1MB limit */
+async function compressImage(buffer: Buffer): Promise<{ data: Buffer; mimeType: string }> {
+  // If already under limit, return as-is (as jpeg for consistency)
+  if (buffer.byteLength <= BSKY_MAX_IMAGE_SIZE) {
+    return { data: buffer, mimeType: 'image/jpeg' };
+  }
+
+  // Try progressively lower quality
+  for (const quality of [85, 70, 55, 40, 25]) {
+    const compressed = await sharp(buffer)
+      .jpeg({ quality, mozjpeg: true })
+      .toBuffer();
+    if (compressed.byteLength <= BSKY_MAX_IMAGE_SIZE) {
+      return { data: compressed, mimeType: 'image/jpeg' };
+    }
+  }
+
+  // If still too large, resize down
+  const resized = await sharp(buffer)
+    .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: 40, mozjpeg: true })
+    .toBuffer();
+  return { data: resized, mimeType: 'image/jpeg' };
+}
+
 async function uploadImage(
   accessJwt: string,
   imageUrl: string
 ): Promise<{ $type: string; ref: { $link: string }; mimeType: string; size: number }> {
-  // Download the image first
+  // Download the image
   const imgRes = await fetch(imageUrl);
   if (!imgRes.ok) throw new Error(`Failed to download image: ${imgRes.status}`);
 
-  const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
-  const imageBuffer = await imgRes.arrayBuffer();
+  const rawBuffer = Buffer.from(await imgRes.arrayBuffer());
+
+  // Compress if needed
+  const { data: imageBuffer, mimeType } = await compressImage(rawBuffer);
 
   // Upload as blob to Bluesky
   const uploadRes = await fetch(`${BSKY_API}/com.atproto.repo.uploadBlob`, {
     method: 'POST',
     headers: {
-      'Content-Type': contentType,
+      'Content-Type': mimeType,
       Authorization: `Bearer ${accessJwt}`,
     },
-    body: imageBuffer,
+    body: new Uint8Array(imageBuffer),
   });
 
   if (!uploadRes.ok) {
