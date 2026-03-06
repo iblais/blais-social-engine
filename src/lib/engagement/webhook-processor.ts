@@ -69,18 +69,7 @@ async function processCommentEvent(
     if (!rules?.length) continue;
 
     const match = findMatchingRule(text, rules as DmRule[]);
-    if (!match) {
-      await supabase.from('comment_tracking').insert({
-        account_id: account.id,
-        post_id: mediaId || '',
-        ig_comment_id: commentId,
-        ig_user_id: from.id,
-        ig_username: from.username,
-        comment_text: text,
-        processed_at: new Date().toISOString(),
-      });
-      return;
-    }
+    if (!match) continue;
 
     // Check cooldown
     const { data: lastTrigger } = await supabase
