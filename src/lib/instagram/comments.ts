@@ -81,7 +81,35 @@ export async function replyToComment(
   return data.id;
 }
 
-/** Send a DM via Instagram Messaging API */
+/** Send a private reply DM to a commenter (uses comment_id as recipient) */
+export async function sendPrivateReply(
+  igUserId: string,
+  commentId: string,
+  message: string,
+  accessToken: string
+): Promise<string> {
+  const base = getGraphBase(accessToken);
+  const url = `${base}/${igUserId}/messages`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      recipient: { comment_id: commentId },
+      message: { text: message },
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`Failed to send private reply: ${err?.error?.message || res.statusText}`);
+  }
+  const data = await res.json();
+  return data.message_id || data.id;
+}
+
+/** Send a DM via Instagram Messaging API (requires prior conversation) */
 export async function sendInstagramDM(
   igUserId: string,
   recipientId: string,

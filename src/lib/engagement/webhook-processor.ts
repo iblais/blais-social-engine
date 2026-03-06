@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { findMatchingRule, renderTemplate, isCooldownActive } from './rules-engine';
-import { replyToComment, sendInstagramDM } from '@/lib/instagram/comments';
+import { replyToComment, sendPrivateReply, sendInstagramDM } from '@/lib/instagram/comments';
 import type { DmRule } from '@/types/database';
 
 interface WebhookChange {
@@ -55,6 +55,9 @@ async function processCommentEvent(
 
   // Try each account (webhook doesn't tell us which account received it)
   for (const account of accounts) {
+    // Skip self-replies (bot's own comments)
+    if (from.id === account.platform_user_id) continue;
+
     const { data: rules } = await supabase
       .from('dm_rules')
       .select('*')
@@ -113,11 +116,11 @@ async function processCommentEvent(
       }
     }
 
-    // Send DM
+    // Send DM via private reply (uses comment_id — no prior conversation needed)
     if (match.rule.dm_template) {
       const dmText = renderTemplate(match.rule.dm_template, vars);
       try {
-        await sendInstagramDM(account.platform_user_id, from.id, dmText, account.access_token);
+        await sendPrivateReply(account.platform_user_id, commentId, dmText, account.access_token);
         dmSent = true;
 
         // Track conversation
