@@ -68,8 +68,6 @@ export async function GET(req: NextRequest) {
     );
     const llData = await llRes.json();
     const longLivedUserToken = llData.access_token || tokenData.access_token;
-    console.log(`FB OAuth: got long-lived token (length: ${longLivedUserToken.length})`);
-
     // Step 3: Get Pages the user manages
     const pagesRes = await fetch(
       `${GRAPH_BASE}/me/accounts?fields=id,name,access_token,picture&access_token=${longLivedUserToken}`
@@ -77,11 +75,18 @@ export async function GET(req: NextRequest) {
     const pagesData = await pagesRes.json();
     const pages = pagesData.data || [];
 
-    console.log(`FB OAuth: found ${pages.length} pages:`, pages.map((p: { id: string; name: string }) => `${p.name} (${p.id})`));
-
     if (!pages.length) {
+      // Debug: check what permissions we actually have
+      const debugRes = await fetch(
+        `${GRAPH_BASE}/me/permissions?access_token=${longLivedUserToken}`
+      );
+      const debugData = await debugRes.json();
+      const perms = (debugData.data || [])
+        .map((p: { permission: string; status: string }) => `${p.permission}:${p.status}`)
+        .join(',');
+
       return NextResponse.redirect(
-        new URL('/settings/accounts?error=no_pages_found', req.url)
+        new URL(`/settings/accounts?error=${encodeURIComponent(`no_pages_found. Permissions: ${perms}`)}`, req.url)
       );
     }
 
