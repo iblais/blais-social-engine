@@ -211,21 +211,22 @@ export default function ComposePage() {
       }
 
       if (editId) {
-        // Update single post
-        const acc = brandAccounts.find((a) => enabledAccountIds.has(a.id));
-        if (!acc) {
+        // Update the original post with the first enabled account
+        const originalAccId = enabled[0];
+        const originalAcc = brandAccounts.find((a) => a.id === originalAccId);
+        if (!originalAcc) {
           toast.error('Select at least one platform');
           setLoading(false);
           return;
         }
         const { error } = await supabase.from('posts').update({
           caption,
-          media_type: getMediaType(acc.platform),
-          post_type: postTypes[acc.id] || 'post',
+          media_type: getMediaType(originalAcc.platform),
+          post_type: postTypes[originalAcc.id] || 'post',
           status,
           scheduled_at: scheduledIso,
-          account_id: acc.id,
-          platform: acc.platform,
+          account_id: originalAcc.id,
+          platform: originalAcc.platform,
         }).eq('id', editId);
         if (error) throw error;
 
@@ -236,11 +237,39 @@ export default function ComposePage() {
           await supabase.from('post_media').delete().eq('id', mediaId);
         }
 
-        // Upload new files
+        // Upload new files for the original post
         const existingCount = existingMedia.filter((m) => !removedMediaIds.includes(m.id)).length;
         await uploadMedia(editId, existingCount);
 
-        toast.success('Post updated!');
+        // Create new posts for any additionally enabled platforms
+        const additionalAccIds = enabled.slice(1);
+        for (const accId of additionalAccIds) {
+          const acc = brandAccounts.find((a) => a.id === accId);
+          if (!acc) continue;
+
+          const { data: newPost, error: newErr } = await supabase.from('posts').insert({
+            user_id: user.id,
+            account_id: accId,
+            platform: acc.platform,
+            caption,
+            media_type: getMediaType(acc.platform),
+            post_type: postTypes[accId] || 'post',
+            status,
+            scheduled_at: scheduledIso,
+          }).select('id').single();
+
+          if (newErr) {
+            console.error(`Failed for ${acc.username}:`, newErr.message);
+            continue;
+          }
+
+          await uploadMedia(newPost.id, 0);
+        }
+
+        const totalPlatforms = 1 + additionalAccIds.length;
+        toast.success(totalPlatforms > 1
+          ? `Updated + scheduled to ${totalPlatforms} platforms!`
+          : 'Post updated!');
       } else {
         // Create one post per enabled account
         let created = 0;
