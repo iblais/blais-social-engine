@@ -177,7 +177,7 @@ export default function CalendarPage() {
                       >
                         <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusColors[p.status]}`} />
                         <span className="truncate">
-                          {p.scheduled_at ? format(new Date(p.scheduled_at), 'HH:mm') : ''}{' '}
+                          {p.scheduled_at ? format(new Date(p.scheduled_at), 'h:mm a') : ''}{' '}
                           {p.caption?.substring(0, 18) || 'No caption'}
                         </span>
                       </button>

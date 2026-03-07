@@ -146,7 +146,7 @@ export default function QueuePage() {
                           {post.scheduled_at && (
                             <>
                               <Clock className="h-3 w-3" />
-                              {format(new Date(post.scheduled_at), 'MMM d, HH:mm')}
+                              {format(new Date(post.scheduled_at), 'MMM d, h:mm a')}
                             </>
                           )}
                         </div>
@@ -217,7 +217,7 @@ export default function QueuePage() {
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                             {post.scheduled_at
-                              ? format(new Date(post.scheduled_at), 'MMM d, HH:mm')
+                              ? format(new Date(post.scheduled_at), 'MMM d, h:mm a')
                               : '—'}
                           </TableCell>
                           <TableCell>
