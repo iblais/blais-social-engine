@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { refreshAccountToken, tokenNeedsRefresh } from '@/lib/meta/token-refresh';
+import { refreshAccountToken, refreshFacebookPageToken, tokenNeedsRefresh } from '@/lib/meta/token-refresh';
 
 export const maxDuration = 60;
 
@@ -88,9 +88,26 @@ export async function GET(req: NextRequest) {
       // Bluesky: app passwords, never expires
       if (account.platform === 'bluesky') { skipped++; continue; }
 
-      // Facebook page tokens from OAuth never expire
+      // Facebook page tokens — refresh the underlying user token before it expires
       if (account.platform === 'facebook' && account.meta?.auth_method === 'facebook_login') {
-        skipped++;
+        if (account.token_expires_at && tokenNeedsRefresh(account.token_expires_at) && account.refresh_token) {
+          try {
+            const pageId = (account.meta?.page_id as string) || account.platform_user_id;
+            const result = await refreshFacebookPageToken(account.refresh_token, pageId);
+            const tokenExpiresAt = new Date(Date.now() + result.expires_in * 1000).toISOString();
+            await supabase.from('social_accounts').update({
+              access_token: result.access_token,
+              refresh_token: result.new_user_token,
+              token_expires_at: tokenExpiresAt,
+            }).eq('id', account.id);
+            refreshed++;
+          } catch (err) {
+            failed++;
+            errors.push(`${account.username} (facebook): ${(err as Error).message}`);
+          }
+        } else {
+          skipped++;
+        }
         continue;
       }
 

@@ -67,7 +67,16 @@ export async function GET(req: NextRequest) {
         })
     );
     const llData = await llRes.json();
-    const longLivedUserToken = llData.access_token || tokenData.access_token;
+    if (!llData.access_token) {
+      console.error('FB long-lived exchange failed:', llData);
+      return NextResponse.redirect(
+        new URL('/settings/accounts?error=long_lived_exchange_failed', req.url)
+      );
+    }
+    const longLivedUserToken = llData.access_token;
+    const userTokenExpiresIn = llData.expires_in || 5184000; // ~60 days
+    const tokenExpiresAt = new Date(Date.now() + userTokenExpiresIn * 1000).toISOString();
+
     // Step 3: Get Pages the user manages
     const pagesRes = await fetch(
       `${GRAPH_BASE}/me/accounts?fields=id,name,access_token,picture&access_token=${longLivedUserToken}`
@@ -121,7 +130,7 @@ export async function GET(req: NextRequest) {
         platform_user_id: pageId,
         access_token: pageToken,
         refresh_token: longLivedUserToken,
-        token_expires_at: null,
+        token_expires_at: tokenExpiresAt,
         username: pageName,
         display_name: pageName,
         avatar_url: avatarUrl,

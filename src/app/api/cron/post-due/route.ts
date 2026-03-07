@@ -5,7 +5,7 @@ import { publishFacebookPost } from '@/lib/posters/facebook';
 import { publishBlueskyPost } from '@/lib/posters/bluesky';
 import { publishTwitterPost } from '@/lib/posters/twitter';
 import { publishYouTubePost } from '@/lib/posters/youtube';
-import { refreshAccountToken, tokenNeedsRefresh } from '@/lib/meta/token-refresh';
+import { refreshAccountToken, refreshFacebookPageToken, tokenNeedsRefresh } from '@/lib/meta/token-refresh';
 import { geminiVision } from '@/lib/ai/gemini';
 
 export const maxDuration = 60;
@@ -93,6 +93,7 @@ async function ensureFreshToken(
   account: {
     id: string;
     platform: string;
+    platform_user_id: string;
     access_token: string;
     refresh_token?: string | null;
     token_expires_at: string | null;
@@ -103,8 +104,21 @@ async function ensureFreshToken(
   // Bluesky uses app passwords — no refresh needed
   if (account.platform === 'bluesky') return account.access_token;
 
-  // Facebook page tokens (from facebook_login) don't expire
+  // Facebook page tokens (from facebook_login) — refresh if user token is expiring
   if (account.platform === 'facebook' && account.meta?.auth_method === 'facebook_login') {
+    // If token_expires_at is set and within 7 days, refresh proactively
+    if (account.token_expires_at && tokenNeedsRefresh(account.token_expires_at) && account.refresh_token) {
+      console.log(`[post-due] Refreshing Facebook page token for ${account.id}`);
+      const pageId = (account.meta?.page_id as string) || account.platform_user_id;
+      const result = await refreshFacebookPageToken(account.refresh_token, pageId);
+      const tokenExpiresAt = new Date(Date.now() + result.expires_in * 1000).toISOString();
+      await supabase.from('social_accounts').update({
+        access_token: result.access_token,
+        refresh_token: result.new_user_token,
+        token_expires_at: tokenExpiresAt,
+      }).eq('id', account.id);
+      return result.access_token;
+    }
     return account.access_token;
   }
 
