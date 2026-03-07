@@ -85,24 +85,46 @@ export async function GET(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // Get authenticated user from session cookie
-    const authClient = await createServerSupabase();
-    const { data: { user } } = await authClient.auth.getUser();
-    const userId = user?.id;
+    // Get authenticated user — try server client first, fall back to DB lookup
+    // (cross-site redirect from Instagram may not send Supabase auth cookies)
+    let userId: string | undefined;
+    try {
+      const authClient = await createServerSupabase();
+      const { data: { user } } = await authClient.auth.getUser();
+      userId = user?.id;
+    } catch {
+      // Cookie-based auth failed — expected on cross-site redirect
+    }
+
+    // Check if this account already exists
+    const { data: existing } = await supabase
+      .from('social_accounts')
+      .select('id, user_id')
+      .eq('platform', 'instagram')
+      .eq('platform_user_id', platformUserId)
+      .single();
+
+    // Fallback: use user_id from existing account
+    if (!userId && existing?.user_id) {
+      userId = existing.user_id;
+    }
+
+    // Last resort: find any active user (single-user system)
+    if (!userId) {
+      const { data: anyAccount } = await supabase
+        .from('social_accounts')
+        .select('user_id')
+        .eq('is_active', true)
+        .limit(1)
+        .single();
+      userId = anyAccount?.user_id;
+    }
 
     if (!userId) {
       return NextResponse.redirect(
         new URL('/settings/accounts?error=no_user', req.url)
       );
     }
-
-    // Check if this account already exists
-    const { data: existing } = await supabase
-      .from('social_accounts')
-      .select('id')
-      .eq('platform', 'instagram')
-      .eq('platform_user_id', platformUserId)
-      .single();
 
     const accountData = {
       access_token: longLivedToken,

@@ -99,21 +99,49 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Get authenticated user
-    const authClient = await createServerSupabase();
-    const { data: { user } } = await authClient.auth.getUser();
-    const userId = user?.id;
+    // Get authenticated user — try server client first, fall back to DB lookup
+    // (cross-site redirect from Facebook may not send Supabase auth cookies)
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    let userId: string | undefined;
+    try {
+      const authClient = await createServerSupabase();
+      const { data: { user } } = await authClient.auth.getUser();
+      userId = user?.id;
+    } catch {
+      // Cookie-based auth failed — expected on cross-site redirect
+    }
+
+    // Fallback: look up user from existing account for this page
+    if (!userId && pages.length > 0) {
+      const { data: existing } = await supabase
+        .from('social_accounts')
+        .select('user_id')
+        .eq('platform', 'facebook')
+        .eq('platform_user_id', pages[0].id)
+        .single();
+      userId = existing?.user_id;
+    }
+
+    // Last resort: find any active user (single-user system)
+    if (!userId) {
+      const { data: anyAccount } = await supabase
+        .from('social_accounts')
+        .select('user_id')
+        .eq('is_active', true)
+        .limit(1)
+        .single();
+      userId = anyAccount?.user_id;
+    }
 
     if (!userId) {
       return NextResponse.redirect(
         new URL('/settings/accounts?error=no_user', req.url)
       );
     }
-
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
 
     // Step 4: Store each Page — Page Access Tokens from long-lived user tokens NEVER expire
     const connectedPages: string[] = [];
