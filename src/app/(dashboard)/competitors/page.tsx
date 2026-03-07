@@ -167,7 +167,7 @@ export default function CompetitorsPage() {
       user_id: user.id,
       brand_id: activeBrandId || null,
       platform: addPlatform,
-      username: addUsername.trim().replace(/^@/, ''),
+      username: addUsername.trim().replace(/^@/, '').replace(/^https?:\/\/[^/]+\//, '').replace(/\/$/, ''),
     });
 
     if (error) {

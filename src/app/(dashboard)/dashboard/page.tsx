@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatDistanceToNow, format, subDays, eachDayOfInterval } from 'date-fns';
-import { CalendarDays, TrendingUp, Send, AlertCircle } from 'lucide-react';
+import { CalendarDays, TrendingUp, Send, AlertCircle, Users, BarChart3 } from 'lucide-react';
 import { useAccountStore } from '@/lib/store/account-store';
 
 interface Brand {
@@ -30,6 +30,17 @@ interface PlatformData {
   platform: string;
   count: number;
   color: string;
+}
+
+interface GrowthMetric {
+  account_id: string;
+  followers: number;
+  following: number;
+  posts_count: number;
+  engagement_rate: number;
+  collected_at: string;
+  platform?: string;
+  username?: string;
 }
 
 const PLATFORM_COLORS: Record<string, string> = {
@@ -65,6 +76,8 @@ export default function DashboardPage() {
   const [recentPosts, setRecentPosts] = useState<any[]>([]);
   const [dailyData, setDailyData] = useState<DayData[]>([]);
   const [platformData, setPlatformData] = useState<PlatformData[]>([]);
+  const [growthMetrics, setGrowthMetrics] = useState<GrowthMetric[]>([]);
+  const [latestMetrics, setLatestMetrics] = useState<GrowthMetric[]>([]);
 
   // Load brands for the dropdown
   useEffect(() => {
@@ -163,6 +176,29 @@ export default function DashboardPage() {
       }))
       .sort((a, b) => b.count - a.count);
     setPlatformData(platData);
+
+    // Growth metrics — follower counts, engagement rate over time
+    const { data: metricsData } = await supabase
+      .from('account_metrics')
+      .select('*, social_accounts(platform, username)')
+      .order('collected_at', { ascending: false })
+      .limit(200);
+
+    if (metricsData?.length) {
+      const enriched = metricsData.map((m: any) => ({
+        ...m,
+        platform: m.social_accounts?.platform,
+        username: m.social_accounts?.username,
+      }));
+      setGrowthMetrics(enriched);
+
+      // Get latest metric per account
+      const latestMap = new Map<string, GrowthMetric>();
+      enriched.forEach((m: GrowthMetric) => {
+        if (!latestMap.has(m.account_id)) latestMap.set(m.account_id, m);
+      });
+      setLatestMetrics(Array.from(latestMap.values()));
+    }
   }, [supabase, activeBrandId, accountIds]);
 
   useEffect(() => { load(); }, [load]);
@@ -245,7 +281,98 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Analytics Section */}
+      {/* Growth Analytics */}
+      {latestMetrics.length > 0 && (
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-primary" />
+            Growth Analytics
+          </h2>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {latestMetrics.map((m) => {
+              const color = PLATFORM_COLORS[m.platform || ''] || '#6B7280';
+              // Find oldest metric for this account to calculate growth
+              const accountHistory = growthMetrics
+                .filter((g) => g.account_id === m.account_id)
+                .sort((a, b) => new Date(a.collected_at).getTime() - new Date(b.collected_at).getTime());
+              const oldest = accountHistory[0];
+              const followerGrowth = oldest && oldest.followers > 0
+                ? m.followers - oldest.followers
+                : 0;
+              const growthPct = oldest && oldest.followers > 0
+                ? ((followerGrowth / oldest.followers) * 100).toFixed(1)
+                : '0.0';
+
+              return (
+                <Card key={m.account_id}>
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div
+                        className="w-3 h-3 rounded-full"
+                        style={{ backgroundColor: color }}
+                      />
+                      <span className="text-sm font-medium capitalize">{m.platform}</span>
+                      <span className="text-xs text-muted-foreground">@{m.username}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Followers</p>
+                        <p className="text-xl font-bold">{m.followers?.toLocaleString() || '—'}</p>
+                        {followerGrowth !== 0 && (
+                          <p className={`text-xs font-medium ${followerGrowth > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {followerGrowth > 0 ? '+' : ''}{followerGrowth.toLocaleString()} ({growthPct}%)
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Engagement</p>
+                        <p className="text-xl font-bold">
+                          {m.engagement_rate != null ? `${m.engagement_rate}%` : '—'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Following</p>
+                        <p className="text-sm font-medium">{m.following?.toLocaleString() || '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Posts</p>
+                        <p className="text-sm font-medium">{m.posts_count?.toLocaleString() || '—'}</p>
+                      </div>
+                    </div>
+                    {accountHistory.length > 1 && (
+                      <div className="mt-3 pt-3 border-t">
+                        <p className="text-xs text-muted-foreground mb-1">Follower trend</p>
+                        <div className="flex items-end gap-px h-8">
+                          {accountHistory.slice(-14).map((point, i) => {
+                            const max = Math.max(...accountHistory.slice(-14).map((p) => p.followers || 0));
+                            const min = Math.min(...accountHistory.slice(-14).map((p) => p.followers || 0));
+                            const range = max - min || 1;
+                            const height = ((point.followers - min) / range) * 100;
+                            return (
+                              <div
+                                key={i}
+                                className="flex-1 rounded-t-sm"
+                                style={{
+                                  height: `${Math.max(height, 10)}%`,
+                                  backgroundColor: color,
+                                  opacity: 0.4 + (i / 14) * 0.6,
+                                }}
+                                title={`${point.followers?.toLocaleString()} — ${new Date(point.collected_at).toLocaleDateString()}`}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Posting Activity */}
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Posts Over Time Chart */}
         <Card className="lg:col-span-2">
