@@ -54,19 +54,19 @@ export async function publishFacebookPost(payload: FacebookPostPayload): Promise
       if (data.id) photoIds.push(data.id as string);
     }
 
-    // Step 2: Create a feed post attaching all photos
-    const feedBody: Record<string, unknown> = { message: caption };
+    // Step 2: Create a feed post attaching all photos (must use form-data, not JSON)
+    const form = new URLSearchParams();
+    form.append('message', caption);
     photoIds.forEach((id, i) => {
-      feedBody[`attached_media[${i}]`] = { media_fbid: id };
+      form.append(`attached_media[${i}]`, JSON.stringify({ media_fbid: id }));
     });
 
     const res = await fetch(`${GRAPH_BASE}/${pageId}/feed`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify(feedBody),
+      body: form,
     });
 
     if (!res.ok) {
