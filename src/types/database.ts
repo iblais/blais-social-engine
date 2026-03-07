@@ -54,6 +54,7 @@ export interface Post {
   platform_post_id: string | null;
   pillar_id: string | null;
   hashtag_group_id: string | null;
+  first_comment: string | null;
   error_message: string | null;
   retry_count: number;
   meta: Record<string, unknown> | null;
@@ -231,6 +232,119 @@ export interface CommentTracking {
   rule_id: string | null;
   dm_sent: boolean;
   processed_at: string | null;
+  created_at: string;
+}
+
+// Autolists
+export interface Autolist {
+  id: string;
+  user_id: string;
+  brand_id: string | null;
+  name: string;
+  description: string | null;
+  account_ids: string[];
+  schedule_cron: string;
+  repeat_interval_days: number;
+  is_active: boolean;
+  last_posted_at: string | null;
+  next_post_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AutolistItem {
+  id: string;
+  autolist_id: string;
+  caption: string;
+  media_urls: string[];
+  sort_order: number;
+  times_posted: number;
+  last_posted_at: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+// SmartLinks
+export interface SmartLink {
+  id: string;
+  user_id: string;
+  brand_id: string | null;
+  slug: string;
+  title: string;
+  bio: string | null;
+  avatar_url: string | null;
+  theme: Record<string, unknown>;
+  is_active: boolean;
+  total_views: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SmartLinkItem {
+  id: string;
+  smartlink_id: string;
+  type: string;
+  title: string;
+  url: string | null;
+  icon: string | null;
+  sort_order: number;
+  is_active: boolean;
+  clicks: number;
+  created_at: string;
+}
+
+// Competitors
+export interface Competitor {
+  id: string;
+  user_id: string;
+  brand_id: string | null;
+  platform: string;
+  username: string;
+  platform_user_id: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
+  followers: number | null;
+  following: number | null;
+  post_count: number | null;
+  engagement_rate: number | null;
+  last_fetched_at: string | null;
+  created_at: string;
+}
+
+export interface CompetitorSnapshot {
+  id: string;
+  competitor_id: string;
+  followers: number | null;
+  following: number | null;
+  post_count: number | null;
+  engagement_rate: number | null;
+  captured_at: string;
+}
+
+// Content Curation
+export interface ContentFeed {
+  id: string;
+  user_id: string;
+  brand_id: string | null;
+  name: string;
+  url: string;
+  last_fetched_at: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface CuratedContent {
+  id: string;
+  feed_id: string | null;
+  user_id: string;
+  brand_id: string | null;
+  title: string;
+  url: string | null;
+  summary: string | null;
+  image_url: string | null;
+  source: string | null;
+  is_saved: boolean;
+  is_used: boolean;
   created_at: string;
 }
 

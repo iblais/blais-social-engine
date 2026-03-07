@@ -414,6 +414,28 @@ export async function GET(req: NextRequest) {
           throw new Error(`Unsupported platform: ${account.platform}`);
       }
 
+      // Post first comment if configured (Instagram only for now)
+      if (post.first_comment && account.platform === 'instagram' && platformPostId) {
+        try {
+          const commentRes = await fetch(
+            `https://graph.facebook.com/v22.0/${platformPostId}/comments`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                message: post.first_comment,
+                access_token: freshToken,
+              }),
+            }
+          );
+          if (!commentRes.ok) {
+            console.error('[post-due] First comment failed:', await commentRes.text());
+          }
+        } catch (commentErr) {
+          console.error('[post-due] First comment error:', (commentErr as Error).message);
+        }
+      }
+
       // Success — mark as posted
       await supabase.from('posts').update({
         status: 'posted',

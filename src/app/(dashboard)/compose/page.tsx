@@ -37,6 +37,7 @@ export default function ComposePage() {
   const [loading, setLoading] = useState(false);
   const [loadingPost, setLoadingPost] = useState(false);
   const [aiCaptionLoading, setAiCaptionLoading] = useState(false);
+  const [firstComment, setFirstComment] = useState('');
 
   // Multi-platform: which accounts are enabled for this post
   const [enabledAccountIds, setEnabledAccountIds] = useState<Set<string>>(new Set());
@@ -92,6 +93,7 @@ export default function ComposePage() {
         setExistingMedia(media);
         setMediaPreviews(media.map((m: PostMedia) => m.media_url));
         setPreviewPlatform(post.platform);
+        if (post.first_comment) setFirstComment(post.first_comment);
         if (post.post_type) {
           setPostTypes((prev) => ({ ...prev, [post.account_id]: post.post_type }));
         }
@@ -221,6 +223,7 @@ export default function ComposePage() {
         }
         const { error } = await supabase.from('posts').update({
           caption,
+          first_comment: firstComment || null,
           media_type: getMediaType(originalAcc.platform),
           post_type: postTypes[originalAcc.id] || 'post',
           status,
@@ -252,6 +255,7 @@ export default function ComposePage() {
             account_id: accId,
             platform: acc.platform,
             caption,
+            first_comment: firstComment || null,
             media_type: getMediaType(acc.platform),
             post_type: postTypes[accId] || 'post',
             status,
@@ -282,6 +286,7 @@ export default function ComposePage() {
             account_id: accId,
             platform: acc.platform,
             caption,
+            first_comment: firstComment || null,
             media_type: getMediaType(acc.platform),
             post_type: postTypes[accId] || 'post',
             status,
@@ -440,6 +445,19 @@ export default function ComposePage() {
                   <span className="ml-1 inline-block w-3 h-3 rounded-full align-middle" style={{ backgroundColor: PLATFORM_META[previewPlatform]?.color || '#888' }} />
                 </span>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* First Comment */}
+          <Card>
+            <CardContent className="pt-4 space-y-2">
+              <Label className="text-xs text-muted-foreground">First Comment (optional)</Label>
+              <Textarea
+                placeholder="Add a first comment with hashtags or extra context..."
+                className="min-h-[60px] resize-y text-sm"
+                value={firstComment}
+                onChange={(e) => setFirstComment(e.target.value)}
+              />
             </CardContent>
           </Card>
 

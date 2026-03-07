@@ -24,6 +24,10 @@ import {
   Key,
   FolderTree,
   MessageCircle,
+  Link2,
+  Rss,
+  Trophy,
+  RotateCcw,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -69,9 +73,13 @@ const toolsNav = [
 ];
 
 const growthNav = [
-  { title: 'A/B Testing', href: '/ab-testing', icon: FlaskConical },
+  { title: 'Autolists', href: '/autolists', icon: RotateCcw },
   { title: 'Evergreen', href: '/evergreen', icon: Recycle },
   { title: 'Engagement', href: '/engagement', icon: MessageCircle },
+  { title: 'Competitors', href: '/competitors', icon: Trophy },
+  { title: 'SmartLinks', href: '/smartlinks', icon: Link2 },
+  { title: 'Curation', href: '/curation', icon: Rss },
+  { title: 'A/B Testing', href: '/ab-testing', icon: FlaskConical },
 ];
 
 const systemNav = [
