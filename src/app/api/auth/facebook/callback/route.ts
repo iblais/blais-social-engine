@@ -110,21 +110,18 @@ export async function GET(req: NextRequest) {
       const pageToken = page.access_token; // This is a non-expiring Page Access Token
       const avatarUrl = page.picture?.data?.url || null;
 
-      const { data: existing } = await supabase
-        .from('social_accounts')
-        .select('id')
-        .eq('platform', 'facebook')
-        .eq('platform_user_id', pageId)
-        .single();
-
       const accountData = {
+        user_id: userId,
+        platform: 'facebook' as const,
+        platform_user_id: pageId,
         access_token: pageToken,
-        refresh_token: longLivedUserToken, // Store user token for future reference
-        token_expires_at: null, // Page tokens from long-lived user tokens don't expire
+        refresh_token: longLivedUserToken,
+        token_expires_at: null,
         username: pageName,
         display_name: pageName,
         avatar_url: avatarUrl,
         is_active: true,
+        updated_at: new Date().toISOString(),
         meta: {
           auth_method: 'facebook_login',
           page_id: pageId,
@@ -132,19 +129,12 @@ export async function GET(req: NextRequest) {
         },
       };
 
-      if (existing) {
-        const { error: updateErr } = await supabase.from('social_accounts').update(accountData).eq('id', existing.id);
-        if (updateErr) console.error(`FB update failed for ${pageName}:`, updateErr.message, updateErr.details);
-        else console.log(`FB updated account for page ${pageName} (${pageId})`);
-      } else {
-        const { error: insertErr } = await supabase.from('social_accounts').insert({
-          user_id: userId,
-          platform: 'facebook' as const,
-          platform_user_id: pageId,
-          ...accountData,
-        });
-        if (insertErr) console.error(`FB insert failed for ${pageName}:`, insertErr.message, insertErr.details);
-        else console.log(`FB inserted new account for page ${pageName} (${pageId})`);
+      const { error: upsertErr } = await supabase
+        .from('social_accounts')
+        .upsert(accountData, { onConflict: 'user_id,platform,platform_user_id' });
+
+      if (upsertErr) {
+        console.error(`FB upsert failed for ${pageName} (${pageId}):`, JSON.stringify(upsertErr));
       }
 
       connectedPages.push(pageName);

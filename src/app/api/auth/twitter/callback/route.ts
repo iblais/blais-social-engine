@@ -108,14 +108,10 @@ export async function GET(req: NextRequest) {
     const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
 
     // Upsert the social account
-    const { data: existing } = await supabase
-      .from('social_accounts')
-      .select('id')
-      .eq('platform', 'twitter')
-      .eq('platform_user_id', twitterUser.id)
-      .single();
-
     const accountData = {
+      user_id: user.id,
+      platform: 'twitter' as const,
+      platform_user_id: twitterUser.id,
       access_token: accessToken,
       refresh_token: refreshToken,
       token_expires_at: tokenExpiresAt,
@@ -123,22 +119,16 @@ export async function GET(req: NextRequest) {
       display_name: twitterUser.name,
       avatar_url: twitterUser.profile_image_url || null,
       is_active: true,
+      updated_at: new Date().toISOString(),
       meta: { auth_method: 'twitter_oauth2' },
     };
 
-    if (existing) {
-      const { error: updateErr } = await supabase.from('social_accounts').update(accountData).eq('id', existing.id);
-      if (updateErr) console.error(`Twitter update failed:`, updateErr.message, updateErr.details);
-      else console.log(`Twitter updated account for @${twitterUser.username} (${twitterUser.id}), token length: ${accessToken.length}`);
-    } else {
-      const { error: insertErr } = await supabase.from('social_accounts').insert({
-        user_id: user.id,
-        platform: 'twitter' as const,
-        platform_user_id: twitterUser.id,
-        ...accountData,
-      });
-      if (insertErr) console.error(`Twitter insert failed:`, insertErr.message, insertErr.details);
-      else console.log(`Twitter inserted new account for @${twitterUser.username} (${twitterUser.id})`);
+    const { error: upsertErr } = await supabase
+      .from('social_accounts')
+      .upsert(accountData, { onConflict: 'user_id,platform,platform_user_id' });
+
+    if (upsertErr) {
+      console.error(`Twitter upsert failed:`, JSON.stringify(upsertErr));
     }
 
     // Clear cookies
