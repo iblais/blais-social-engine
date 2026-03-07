@@ -55,9 +55,9 @@ export async function publishFacebookPost(payload: FacebookPostPayload): Promise
     }
 
     // Step 2: Create a feed post attaching all photos
-    const feedBody: Record<string, string> = { message: caption };
+    const feedBody: Record<string, unknown> = { message: caption };
     photoIds.forEach((id, i) => {
-      feedBody[`attached_media[${i}]`] = JSON.stringify({ media_fbid: id });
+      feedBody[`attached_media[${i}]`] = { media_fbid: id };
     });
 
     const res = await fetch(`${GRAPH_BASE}/${pageId}/feed`, {
