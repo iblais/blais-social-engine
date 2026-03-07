@@ -175,6 +175,8 @@ async function ensureFreshToken(
 
 /** Check if an error is a token/auth problem (don't retry these). */
 function isTokenError(message: string): boolean {
+  // Rate limit errors (403 + "request limit") are NOT token errors — they should retry
+  if (/request limit reached/i.test(message)) return false;
   return /\b(190|401|403|OAuthException|token expired|unauthorized)\b/i.test(message);
 }
 
