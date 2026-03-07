@@ -58,7 +58,7 @@ async function waitForContainer(
       throw new Error(`Container ${containerId} failed: ${JSON.stringify(data)}`);
     }
 
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 1000));
   }
   throw new Error(`Container ${containerId} timed out`);
 }

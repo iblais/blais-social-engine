@@ -113,7 +113,6 @@ async function ensureFreshToken(
     if (!account.refresh_token) {
       throw new TokenError('twitter', 'No refresh token available');
     }
-    // Refresh if expiring within 30 minutes (twitter tokens are short-lived)
     const needsRefresh = !account.token_expires_at ||
       new Date(account.token_expires_at) <= new Date(Date.now() + 30 * 60 * 1000);
     if (needsRefresh) {
@@ -165,6 +164,48 @@ function getBackoffMinutes(retryCount: number): number {
   return Math.min(5 * Math.pow(3, retryCount), 60); // 5, 15, 45, capped at 60min
 }
 
+/* ---------- self-healing ---------- */
+
+/**
+ * Fix posts stuck in "publishing" state.
+ * If a post has been "publishing" for >5 min and has a platform_post_id, it actually succeeded.
+ * If no platform_post_id after >10 min, it failed silently (Vercel timeout killed it).
+ */
+async function healStuckPosts(supabase: ReturnType<typeof createAdminClient>) {
+  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+
+  // Posts that succeeded but status wasn't updated (have platform_post_id)
+  const { data: succeeded } = await supabase
+    .from('posts')
+    .update({
+      status: 'posted',
+      published_at: new Date().toISOString(),
+    })
+    .eq('status', 'publishing')
+    .not('platform_post_id', 'is', null)
+    .lte('updated_at', fiveMinAgo)
+    .select('id');
+
+  // Posts stuck publishing with no platform_post_id — reset to scheduled for retry
+  const { data: stuck } = await supabase
+    .from('posts')
+    .update({
+      status: 'scheduled',
+      scheduled_at: new Date().toISOString(),
+    })
+    .eq('status', 'publishing')
+    .is('platform_post_id', null)
+    .lte('updated_at', tenMinAgo)
+    .select('id');
+
+  const healedCount = (succeeded?.length || 0) + (stuck?.length || 0);
+  if (healedCount > 0) {
+    console.log(`[post-due] Healed ${succeeded?.length || 0} succeeded + ${stuck?.length || 0} stuck posts`);
+  }
+  return healedCount;
+}
+
 /* ---------- main cron handler ---------- */
 
 export async function GET(req: NextRequest) {
@@ -176,28 +217,31 @@ export async function GET(req: NextRequest) {
   const supabase = createAdminClient();
   const now = new Date().toISOString();
 
-  // 1) Fetch scheduled posts that are due (up to 50)
+  // 0) Self-heal: fix posts stuck in "publishing" from previous timeout
+  const healed = await healStuckPosts(supabase);
+
+  // 1) Fetch scheduled posts that are due
+  //    Limit to 5 to stay within 60s timeout (carousels are slow)
   const { data: duePosts, error } = await supabase
     .from('posts')
     .select('*, social_accounts(*), post_media(*)')
     .eq('status', 'scheduled')
     .lte('scheduled_at', now)
     .order('scheduled_at', { ascending: true })
-    .limit(50);
+    .limit(5);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   // 2) Fetch retry posts that have waited long enough (exponential backoff)
-  //    Instead of re-queuing, process them directly in this run
   const { data: retryPosts } = await supabase
     .from('posts')
     .select('*, social_accounts(*), post_media(*)')
     .eq('status', 'retry')
     .lt('retry_count', 3)
     .order('updated_at', { ascending: true })
-    .limit(20);
+    .limit(5);
 
   // Filter retries that have waited long enough based on their retry count
   const readyRetries = (retryPosts || []).filter((p) => {
@@ -214,6 +258,7 @@ export async function GET(req: NextRequest) {
       message: 'No posts due',
       processed: 0,
       failed: 0,
+      healed,
       retries_checked: retryPosts?.length || 0,
     });
   }
@@ -225,7 +270,6 @@ export async function GET(req: NextRequest) {
   for (const post of allPosts) {
     const account = post.social_accounts;
     if (!account) {
-      // No account linked — mark as failed
       await supabase.from('posts').update({
         status: 'failed',
         error_message: 'No social account linked to this post',
@@ -243,7 +287,6 @@ export async function GET(req: NextRequest) {
       try {
         freshToken = await ensureFreshToken(account, supabase);
       } catch (tokenErr) {
-        // Token errors are not retryable — fail immediately
         throw new TokenError(account.platform, (tokenErr as Error).message);
       }
 
@@ -280,14 +323,12 @@ export async function GET(req: NextRequest) {
           break;
         }
         case 'bluesky': {
-          // Bluesky supports up to 4 images per post
           const bskyMediaUrls = media.length > 1
             ? media.slice(0, 4).map((m: { media_url: string }) => m.media_url)
             : undefined;
 
           let bskyCaption = post.caption;
 
-          // For carousel posts with >4 images, extract text from remaining slides
           if (media.length > 4) {
             try {
               const apiKey = process.env.GEMINI_API_KEY;
@@ -335,7 +376,6 @@ export async function GET(req: NextRequest) {
           if (!videoMedia?.media_url) {
             throw new Error('YouTube posts require a video file');
           }
-          // Use caption as title (first line) + description (rest)
           const lines = post.caption.split('\n');
           const ytTitle = lines[0]?.slice(0, 100) || 'Untitled';
           const ytDescription = lines.slice(1).join('\n').trim() || post.caption;
@@ -397,11 +437,28 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // 3) If there are more posts due, trigger another run via fetch (self-chain)
+  const { count: remaining } = await supabase
+    .from('posts')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'scheduled')
+    .lte('scheduled_at', new Date().toISOString());
+
+  if (remaining && remaining > 0) {
+    // Fire-and-forget: trigger another cron run to process remaining posts
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://blais-social-engine.vercel.app';
+    fetch(`${appUrl}/api/cron/post-due`, {
+      headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` },
+    }).catch(() => {}); // fire-and-forget
+  }
+
   return NextResponse.json({
     message: 'Done',
     processed,
     failed,
     total: allPosts.length,
+    healed,
+    remaining: remaining || 0,
     retries_processed: readyRetries.length,
     results,
   });
