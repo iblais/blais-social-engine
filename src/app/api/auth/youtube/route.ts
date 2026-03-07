@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 
 export async function GET() {
   const clientId = process.env.YOUTUBE_CLIENT_ID!;
-  const redirectUri = 'https://blais-social-engine.vercel.app/api/auth/youtube/callback';
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://blais-social-engine.vercel.app').trim();
+  const redirectUri = `${appUrl}/api/auth/youtube/callback`;
 
   const scopes = [
     'https://www.googleapis.com/auth/youtube',

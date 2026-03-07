@@ -4,6 +4,7 @@ import { publishInstagramPost } from '@/lib/posters/instagram';
 import { publishFacebookPost } from '@/lib/posters/facebook';
 import { publishBlueskyPost } from '@/lib/posters/bluesky';
 import { publishTwitterPost } from '@/lib/posters/twitter';
+import { publishYouTubePost } from '@/lib/posters/youtube';
 import { refreshAccountToken, tokenNeedsRefresh } from '@/lib/meta/token-refresh';
 import { geminiVision } from '@/lib/ai/gemini';
 
@@ -54,6 +55,36 @@ async function refreshTwitterToken(
   return data.access_token;
 }
 
+/** Refresh a YouTube (Google) OAuth 2.0 token. */
+async function refreshYouTubeToken(
+  refreshToken: string,
+  supabase: ReturnType<typeof createAdminClient>,
+  accountId: string
+): Promise<string> {
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: process.env.YOUTUBE_CLIENT_ID!,
+      client_secret: process.env.YOUTUBE_CLIENT_SECRET!,
+    }),
+  });
+
+  const data = await res.json();
+  if (!data.access_token) throw new Error(`YouTube refresh failed: ${JSON.stringify(data)}`);
+
+  const expiresAt = new Date(Date.now() + (data.expires_in || 3600) * 1000).toISOString();
+
+  await supabase.from('social_accounts').update({
+    access_token: data.access_token,
+    token_expires_at: expiresAt,
+  }).eq('id', accountId);
+
+  return data.access_token;
+}
+
 /**
  * Ensure the account token is fresh before posting.
  * THROWS on failure instead of silently returning expired token.
@@ -88,6 +119,20 @@ async function ensureFreshToken(
     if (needsRefresh) {
       console.log(`[post-due] Refreshing Twitter token for ${account.id}`);
       return await refreshTwitterToken(account.refresh_token, supabase, account.id);
+    }
+    return account.access_token;
+  }
+
+  // YouTube (Google OAuth2) — tokens expire every ~1 hour
+  if (account.platform === 'youtube') {
+    if (!account.refresh_token) {
+      throw new TokenError('youtube', 'No refresh token available');
+    }
+    const needsRefresh = !account.token_expires_at ||
+      new Date(account.token_expires_at) <= new Date(Date.now() + 10 * 60 * 1000);
+    if (needsRefresh) {
+      console.log(`[post-due] Refreshing YouTube token for ${account.id}`);
+      return await refreshYouTubeToken(account.refresh_token, supabase, account.id);
     }
     return account.access_token;
   }
@@ -280,6 +325,29 @@ export async function GET(req: NextRequest) {
             caption: post.caption,
             imageUrl: primaryMedia?.media_url,
             imageUrls: twitterMediaUrls,
+          });
+          break;
+        }
+        case 'youtube': {
+          const videoMedia = media.find(
+            (m: { media_type: string }) => m.media_type === 'video'
+          ) || primaryMedia;
+          if (!videoMedia?.media_url) {
+            throw new Error('YouTube posts require a video file');
+          }
+          // Use caption as title (first line) + description (rest)
+          const lines = post.caption.split('\n');
+          const ytTitle = lines[0]?.slice(0, 100) || 'Untitled';
+          const ytDescription = lines.slice(1).join('\n').trim() || post.caption;
+          const isShort = post.media_type === 'short' ||
+            (post as Record<string, unknown>).post_type === 'short';
+
+          platformPostId = await publishYouTubePost({
+            accessToken: freshToken,
+            title: ytTitle,
+            description: ytDescription,
+            videoUrl: videoMedia.media_url,
+            isShort,
           });
           break;
         }
