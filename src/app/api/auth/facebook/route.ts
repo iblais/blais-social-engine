@@ -24,7 +24,6 @@ export async function GET() {
   url.searchParams.set('redirect_uri', redirectUri);
   url.searchParams.set('scope', scopes);
   url.searchParams.set('response_type', 'code');
-  url.searchParams.set('auth_type', 'rerequest');
 
   return NextResponse.redirect(url.toString());
 }
