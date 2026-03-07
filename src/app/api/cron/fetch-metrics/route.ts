@@ -3,7 +3,13 @@ import { createAdminClient } from '@/lib/supabase/admin';
 
 export const maxDuration = 60;
 
-const GRAPH_API = 'https://graph.facebook.com/v22.0';
+const FB_GRAPH = 'https://graph.facebook.com/v22.0';
+const IG_GRAPH = 'https://graph.instagram.com/v22.0';
+
+/** Pick the right Graph API base URL based on token type */
+function graphApi(token: string): string {
+  return token.startsWith('IGA') ? IG_GRAPH : FB_GRAPH;
+}
 
 /**
  * Fetch real engagement metrics (likes, comments, shares, views) for all posted posts.
@@ -42,9 +48,10 @@ export async function GET(req: NextRequest) {
       let metrics: { impressions: number; reach: number; likes: number; comments: number; shares: number; saves: number } | null = null;
 
       if (post.platform === 'instagram') {
+        const base = graphApi(account.access_token);
         // IG Media Insights API
         const insightsRes = await fetch(
-          `${GRAPH_API}/${post.platform_post_id}/insights?metric=impressions,reach,likes,comments,shares,saved&access_token=${account.access_token}`
+          `${base}/${post.platform_post_id}/insights?metric=impressions,reach,likes,comments,shares,saved&access_token=${account.access_token}`
         );
 
         if (insightsRes.ok) {
@@ -64,7 +71,7 @@ export async function GET(req: NextRequest) {
         } else {
           // Fallback: get basic fields from media endpoint
           const mediaRes = await fetch(
-            `${GRAPH_API}/${post.platform_post_id}?fields=like_count,comments_count&access_token=${account.access_token}`
+            `${base}/${post.platform_post_id}?fields=like_count,comments_count&access_token=${account.access_token}`
           );
           if (mediaRes.ok) {
             const mediaData = await mediaRes.json();
@@ -81,7 +88,7 @@ export async function GET(req: NextRequest) {
       } else if (post.platform === 'facebook') {
         // Facebook post insights
         const fbRes = await fetch(
-          `${GRAPH_API}/${post.platform_post_id}?fields=likes.summary(true),comments.summary(true),shares,insights.metric(post_impressions,post_engaged_users)&access_token=${account.access_token}`
+          `${FB_GRAPH}/${post.platform_post_id}?fields=likes.summary(true),comments.summary(true),shares,insights.metric(post_impressions,post_engaged_users)&access_token=${account.access_token}`
         );
 
         if (fbRes.ok) {
@@ -134,8 +141,9 @@ export async function GET(req: NextRequest) {
   for (const acc of accounts || []) {
     try {
       if (acc.platform === 'instagram') {
+        const base = graphApi(acc.access_token);
         const res = await fetch(
-          `${GRAPH_API}/${acc.platform_user_id}?fields=followers_count,follows_count,media_count&access_token=${acc.access_token}`
+          `${base}/${acc.platform_user_id}?fields=followers_count,follows_count,media_count&access_token=${acc.access_token}`
         );
         if (res.ok) {
           const data = await res.json();
@@ -150,7 +158,7 @@ export async function GET(req: NextRequest) {
         }
       } else if (acc.platform === 'facebook') {
         const res = await fetch(
-          `${GRAPH_API}/${acc.platform_user_id}?fields=followers_count,fan_count&access_token=${acc.access_token}`
+          `${FB_GRAPH}/${acc.platform_user_id}?fields=followers_count,fan_count&access_token=${acc.access_token}`
         );
         if (res.ok) {
           const data = await res.json();
