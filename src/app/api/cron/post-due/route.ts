@@ -239,15 +239,15 @@ export async function GET(req: NextRequest) {
   // 0) Self-heal: fix posts stuck in "publishing" from previous timeout
   const healed = await healStuckPosts(supabase);
 
-  // 1) Fetch scheduled posts that are due
-  //    Limit to 5 to stay within 60s timeout (carousels are slow)
+  // 1) Fetch scheduled posts that are due (skip twitter entirely)
   const { data: duePosts, error } = await supabase
     .from('posts')
     .select('*, social_accounts(*), post_media(*)')
     .eq('status', 'scheduled')
     .lte('scheduled_at', now)
+    .neq('platform', 'twitter')
     .order('scheduled_at', { ascending: true })
-    .limit(5);
+    .limit(10);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -258,6 +258,7 @@ export async function GET(req: NextRequest) {
     .from('posts')
     .select('*, social_accounts(*), post_media(*)')
     .eq('status', 'retry')
+    .neq('platform', 'twitter')
     .lt('retry_count', 3)
     .order('updated_at', { ascending: true })
     .limit(5);
@@ -269,8 +270,15 @@ export async function GET(req: NextRequest) {
     return Date.now() - updatedAt >= backoffMs;
   });
 
-  // Combine due posts + ready retries
-  const allPosts = [...(duePosts || []), ...readyRetries];
+  // Combine due posts + ready retries, then pick max 1 per platform
+  const combined = [...(duePosts || []), ...readyRetries];
+  const seenPlatforms = new Set<string>();
+  const allPosts = combined.filter((p) => {
+    const platform = p.social_accounts?.platform || p.platform;
+    if (seenPlatforms.has(platform)) return false;
+    seenPlatforms.add(platform);
+    return true;
+  });
 
   if (!allPosts.length) {
     return NextResponse.json({
@@ -377,16 +385,7 @@ export async function GET(req: NextRequest) {
           break;
         }
         case 'twitter': {
-          const twitterMediaUrls = media.length > 1
-            ? media.slice(0, 4).map((m: { media_url: string }) => m.media_url)
-            : undefined;
-          platformPostId = await publishTwitterPost({
-            accessToken: freshToken,
-            caption: post.caption,
-            imageUrl: primaryMedia?.media_url,
-            imageUrls: twitterMediaUrls,
-          });
-          break;
+          throw new Error('Twitter posting disabled — paid API plan required');
         }
         case 'youtube': {
           const videoMedia = media.find(
@@ -442,11 +441,20 @@ export async function GET(req: NextRequest) {
           error_message: err instanceof TokenError ? errorMessage
             : `Token expired — reconnect ${account.platform} in Settings. Original: ${errorMessage}`,
         }).eq('id', post.id);
-      } else {
-        // Other errors: retry with exponential backoff (up to 3 attempts)
+      } else if (newRetryCount >= 3) {
+        // Max retries exhausted — mark as failed
         await supabase.from('posts').update({
-          status: newRetryCount >= 3 ? 'failed' : 'retry',
+          status: 'failed',
           error_message: errorMessage,
+          retry_count: newRetryCount,
+        }).eq('id', post.id);
+      } else {
+        // Reschedule same day: push 1 hour later, stay in 'scheduled' status
+        const retryAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+        await supabase.from('posts').update({
+          status: 'scheduled',
+          scheduled_at: retryAt,
+          error_message: `Retry ${newRetryCount}/3: ${errorMessage}`,
           retry_count: newRetryCount,
         }).eq('id', post.id);
       }
