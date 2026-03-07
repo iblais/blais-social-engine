@@ -129,6 +129,9 @@ export async function GET(req: NextRequest) {
 
     if (upsertErr) {
       console.error(`Twitter upsert failed:`, JSON.stringify(upsertErr));
+      return NextResponse.redirect(
+        new URL(`/settings/accounts?error=${encodeURIComponent(`upsert_failed: ${upsertErr.message}`)}`, req.url)
+      );
     }
 
     // Clear cookies

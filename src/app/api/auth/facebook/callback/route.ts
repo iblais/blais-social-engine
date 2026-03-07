@@ -135,14 +135,26 @@ export async function GET(req: NextRequest) {
 
       if (upsertErr) {
         console.error(`FB upsert failed for ${pageName} (${pageId}):`, JSON.stringify(upsertErr));
+        // Bail early with error details so we can debug
+        return NextResponse.redirect(
+          new URL(`/settings/accounts?error=${encodeURIComponent(`upsert_failed: ${upsertErr.message}`)}`, req.url)
+        );
       }
 
       connectedPages.push(pageName);
     }
 
+    // Diagnostic: write to activity_log to verify DB writes work
+    await supabase.from('activity_log').insert({
+      user_id: userId,
+      action: 'oauth_connect',
+      entity_type: 'social_account',
+      details: { platform: 'facebook', pages: connectedPages },
+    });
+
     return NextResponse.redirect(
       new URL(
-        `/settings/accounts?success=facebook&connected=${encodeURIComponent(connectedPages.join(', '))}`,
+        `/settings/accounts?success=facebook&connected=${encodeURIComponent(connectedPages.join(', '))}&pages=${connectedPages.length}`,
         req.url
       )
     );
