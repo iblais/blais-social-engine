@@ -8,6 +8,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Table,
   TableBody,
   TableCell,
@@ -23,6 +30,7 @@ import { useBrandAccounts } from '@/lib/hooks/use-brand-accounts';
 interface PostRow {
   id: string;
   caption: string;
+  platform: string;
   status: string;
   media_type: string;
   scheduled_at: string | null;
@@ -33,10 +41,28 @@ interface PostRow {
 }
 
 const STATUS_TABS = ['all', 'scheduled', 'draft', 'posted', 'failed'] as const;
+const PLATFORMS = ['all', 'instagram', 'facebook', 'bluesky', 'youtube'] as const;
+
+const platformColors: Record<string, string> = {
+  instagram: 'bg-pink-100 text-pink-700 dark:bg-pink-900 dark:text-pink-300',
+  facebook: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
+  bluesky: 'bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300',
+  youtube: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
+  twitter: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
+};
+
+const platformLabels: Record<string, string> = {
+  instagram: 'Instagram',
+  facebook: 'Facebook',
+  bluesky: 'Bluesky',
+  youtube: 'YouTube',
+  twitter: 'X',
+};
 
 export default function QueuePage() {
   const [posts, setPosts] = useState<PostRow[]>([]);
   const [activeTab, setActiveTab] = useState<string>('all');
+  const [platformFilter, setPlatformFilter] = useState<string>('all');
   const { accountIds, activeBrandId } = useBrandAccounts();
   const supabase = createClient();
   const router = useRouter();
@@ -51,13 +77,16 @@ export default function QueuePage() {
     if (activeTab !== 'all') {
       query = query.eq('status', activeTab);
     }
+    if (platformFilter !== 'all') {
+      query = query.eq('platform', platformFilter);
+    }
     if (activeBrandId && accountIds.length) {
       query = query.in('account_id', accountIds);
     }
 
     const { data } = await query;
     setPosts(data || []);
-  }, [supabase, activeTab, activeBrandId, accountIds]);
+  }, [supabase, activeTab, platformFilter, activeBrandId, accountIds]);
 
   useEffect(() => { loadPosts(); }, [loadPosts]);
 
@@ -93,11 +122,27 @@ export default function QueuePage() {
     retry: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300',
   };
 
+  const platform = (post: PostRow) => post.social_accounts?.platform || post.platform || '';
+
   return (
     <div className="space-y-4 sm:space-y-6">
-      <div>
-        <h1 className="text-xl sm:text-2xl font-bold">Queue</h1>
-        <p className="text-sm text-muted-foreground">Manage your posts — tap any post to edit</p>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold">Queue</h1>
+          <p className="text-sm text-muted-foreground">Manage your posts — tap any post to edit</p>
+        </div>
+        <Select value={platformFilter} onValueChange={setPlatformFilter}>
+          <SelectTrigger className="w-[140px]">
+            <SelectValue placeholder="Platform" />
+          </SelectTrigger>
+          <SelectContent>
+            {PLATFORMS.map((p) => (
+              <SelectItem key={p} value={p}>
+                {p === 'all' ? 'All Platforms' : platformLabels[p] || p}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -141,7 +186,12 @@ export default function QueuePage() {
                         </Badge>
                       </div>
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>@{post.social_accounts?.username ?? '—'}</span>
+                        <div className="flex items-center gap-1.5">
+                          <Badge variant="secondary" className={`text-[10px] ${platformColors[platform(post)] || ''}`}>
+                            {platformLabels[platform(post)] || platform(post)}
+                          </Badge>
+                          <span>@{post.social_accounts?.username ?? '—'}</span>
+                        </div>
                         <div className="flex items-center gap-1">
                           {post.scheduled_at && (
                             <>
@@ -182,6 +232,7 @@ export default function QueuePage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Caption</TableHead>
+                        <TableHead>Platform</TableHead>
                         <TableHead>Account</TableHead>
                         <TableHead>Type</TableHead>
                         <TableHead>Status</TableHead>
@@ -201,6 +252,11 @@ export default function QueuePage() {
                             {post.error_message && (
                               <p className="text-xs text-destructive truncate mt-0.5">{post.error_message}</p>
                             )}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="secondary" className={`text-xs ${platformColors[platform(post)] || ''}`}>
+                              {platformLabels[platform(post)] || platform(post)}
+                            </Badge>
                           </TableCell>
                           <TableCell className="text-sm">
                             @{post.social_accounts?.username ?? '—'}
