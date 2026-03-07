@@ -68,6 +68,7 @@ export async function GET(req: NextRequest) {
     );
     const llData = await llRes.json();
     const longLivedUserToken = llData.access_token || tokenData.access_token;
+    console.log(`FB OAuth: got long-lived token (length: ${longLivedUserToken.length})`);
 
     // Step 3: Get Pages the user manages
     const pagesRes = await fetch(
@@ -75,6 +76,8 @@ export async function GET(req: NextRequest) {
     );
     const pagesData = await pagesRes.json();
     const pages = pagesData.data || [];
+
+    console.log(`FB OAuth: found ${pages.length} pages:`, pages.map((p: { id: string; name: string }) => `${p.name} (${p.id})`));
 
     if (!pages.length) {
       return NextResponse.redirect(
@@ -130,14 +133,18 @@ export async function GET(req: NextRequest) {
       };
 
       if (existing) {
-        await supabase.from('social_accounts').update(accountData).eq('id', existing.id);
+        const { error: updateErr } = await supabase.from('social_accounts').update(accountData).eq('id', existing.id);
+        if (updateErr) console.error(`FB update failed for ${pageName}:`, updateErr.message, updateErr.details);
+        else console.log(`FB updated account for page ${pageName} (${pageId})`);
       } else {
-        await supabase.from('social_accounts').insert({
+        const { error: insertErr } = await supabase.from('social_accounts').insert({
           user_id: userId,
           platform: 'facebook' as const,
           platform_user_id: pageId,
           ...accountData,
         });
+        if (insertErr) console.error(`FB insert failed for ${pageName}:`, insertErr.message, insertErr.details);
+        else console.log(`FB inserted new account for page ${pageName} (${pageId})`);
       }
 
       connectedPages.push(pageName);

@@ -75,6 +75,7 @@ export async function GET(req: NextRequest) {
     const accessToken = tokenData.access_token;
     const refreshToken = tokenData.refresh_token;
     const expiresIn = tokenData.expires_in || 7200; // 2 hours default
+    console.log(`Twitter OAuth: got token (length: ${accessToken.length}), refresh: ${!!refreshToken}, expires_in: ${expiresIn}`);
 
     // Get user info
     const userRes = await fetch('https://api.twitter.com/2/users/me?user.fields=profile_image_url', {
@@ -126,14 +127,18 @@ export async function GET(req: NextRequest) {
     };
 
     if (existing) {
-      await supabase.from('social_accounts').update(accountData).eq('id', existing.id);
+      const { error: updateErr } = await supabase.from('social_accounts').update(accountData).eq('id', existing.id);
+      if (updateErr) console.error(`Twitter update failed:`, updateErr.message, updateErr.details);
+      else console.log(`Twitter updated account for @${twitterUser.username} (${twitterUser.id}), token length: ${accessToken.length}`);
     } else {
-      await supabase.from('social_accounts').insert({
+      const { error: insertErr } = await supabase.from('social_accounts').insert({
         user_id: user.id,
         platform: 'twitter' as const,
         platform_user_id: twitterUser.id,
         ...accountData,
       });
+      if (insertErr) console.error(`Twitter insert failed:`, insertErr.message, insertErr.details);
+      else console.log(`Twitter inserted new account for @${twitterUser.username} (${twitterUser.id})`);
     }
 
     // Clear cookies
