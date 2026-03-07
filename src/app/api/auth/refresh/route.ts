@@ -90,6 +90,11 @@ export async function GET(req: NextRequest) {
 
       // Facebook page tokens — refresh the underlying user token before it expires
       if (account.platform === 'facebook' && account.meta?.auth_method === 'facebook_login') {
+        // Permanent tokens (far-future expiry like 2099) — skip
+        const fbExpiry = account.token_expires_at ? new Date(account.token_expires_at) : null;
+        const isPermanent = fbExpiry && fbExpiry.getFullYear() >= 2090;
+        if (isPermanent) { skipped++; continue; }
+
         if (account.token_expires_at && tokenNeedsRefresh(account.token_expires_at) && account.refresh_token) {
           try {
             const pageId = (account.meta?.page_id as string) || account.platform_user_id;

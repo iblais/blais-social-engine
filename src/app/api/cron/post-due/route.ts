@@ -106,6 +106,11 @@ async function ensureFreshToken(
 
   // Facebook page tokens (from facebook_login) — refresh if user token is expiring
   if (account.platform === 'facebook' && account.meta?.auth_method === 'facebook_login') {
+    // Permanent tokens (far-future expiry like 2099) — skip refresh
+    const fbExpiry = account.token_expires_at ? new Date(account.token_expires_at) : null;
+    const isPermanent = fbExpiry && fbExpiry.getFullYear() >= 2090;
+    if (isPermanent) return account.access_token;
+
     // If token_expires_at is set and within 7 days, refresh proactively
     if (account.token_expires_at && tokenNeedsRefresh(account.token_expires_at) && account.refresh_token) {
       console.log(`[post-due] Refreshing Facebook page token for ${account.id}`);
