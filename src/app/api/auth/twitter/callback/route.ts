@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient as createServerSupabase } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
 
@@ -100,10 +100,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const supabase = createAdminClient();
 
     const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
 
@@ -128,18 +125,28 @@ export async function GET(req: NextRequest) {
       .upsert(accountData, { onConflict: 'user_id,platform,platform_user_id' });
 
     if (upsertErr) {
-      console.error(`Twitter upsert failed:`, JSON.stringify(upsertErr));
       return NextResponse.redirect(
-        new URL(`/settings/accounts?error=${encodeURIComponent(`upsert_failed: ${upsertErr.message}`)}`, req.url)
+        new URL(`/settings/accounts?error=${encodeURIComponent(`upsert: ${upsertErr.message} | code: ${upsertErr.code} | details: ${upsertErr.details}`)}`, req.url)
       );
     }
+
+    // Verify write succeeded
+    const { data: verify } = await supabase
+      .from('social_accounts')
+      .select('id, updated_at')
+      .eq('platform', 'twitter')
+      .eq('platform_user_id', twitterUser.id)
+      .eq('user_id', user.id)
+      .single();
+
+    const verifyInfo = verify ? `verified_id=${verify.id}` : 'verify_failed';
 
     // Clear cookies
     cookieStore.delete('twitter_code_verifier');
     cookieStore.delete('twitter_oauth_state');
 
     return NextResponse.redirect(
-      new URL(`/settings/accounts?success=twitter&connected=${encodeURIComponent(twitterUser.username)}`, req.url)
+      new URL(`/settings/accounts?success=twitter&connected=${encodeURIComponent(twitterUser.username)}&${verifyInfo}&uid=${user.id.substring(0,8)}`, req.url)
     );
   } catch (err) {
     console.error('Twitter OAuth error:', err);
