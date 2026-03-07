@@ -339,8 +339,7 @@ export async function GET(req: NextRequest) {
           const lines = post.caption.split('\n');
           const ytTitle = lines[0]?.slice(0, 100) || 'Untitled';
           const ytDescription = lines.slice(1).join('\n').trim() || post.caption;
-          const isShort = post.media_type === 'short' ||
-            (post as Record<string, unknown>).post_type === 'short';
+          const isShort = post.post_type === 'short' || post.media_type === 'short';
 
           platformPostId = await publishYouTubePost({
             accessToken: freshToken,

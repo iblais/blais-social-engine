@@ -92,6 +92,9 @@ export default function ComposePage() {
         setExistingMedia(media);
         setMediaPreviews(media.map((m: PostMedia) => m.media_url));
         setPreviewPlatform(post.platform);
+        if (post.post_type) {
+          setPostTypes((prev) => ({ ...prev, [post.account_id]: post.post_type }));
+        }
       }
       setLoadingPost(false);
     })();
@@ -218,6 +221,7 @@ export default function ComposePage() {
         const { error } = await supabase.from('posts').update({
           caption,
           media_type: getMediaType(acc.platform),
+          post_type: postTypes[acc.id] || 'post',
           status,
           scheduled_at: scheduledIso,
           account_id: acc.id,
@@ -250,6 +254,7 @@ export default function ComposePage() {
             platform: acc.platform,
             caption,
             media_type: getMediaType(acc.platform),
+            post_type: postTypes[accId] || 'post',
             status,
             scheduled_at: scheduledIso,
           }).select('id').single();
