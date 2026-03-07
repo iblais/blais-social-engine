@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -82,7 +82,7 @@ interface Snapshot {
 }
 
 export default function CompetitorsPage() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const { activeBrandId } = useBrandAccounts();
 
   const [competitors, setCompetitors] = useState<Competitor[]>([]);

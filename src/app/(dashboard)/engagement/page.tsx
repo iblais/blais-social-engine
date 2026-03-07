@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useBrandAccounts } from '@/lib/hooks/use-brand-accounts';
 import { Button } from '@/components/ui/button';
@@ -27,9 +27,13 @@ import type { DmRule, CommentTracking, DmConversation, DmMessage, EngagementStat
 type Tab = 'rules' | 'activity' | 'inbox' | 'stats';
 
 export default function EngagementPage() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const { accounts } = useBrandAccounts();
-  const igAccounts = accounts.filter((a: SocialAccount) => a.platform === 'instagram');
+  const igAccounts = useMemo(
+    () => accounts.filter((a: SocialAccount) => a.platform === 'instagram'),
+    [accounts]
+  );
+  const igAccountIds = useMemo(() => igAccounts.map((a: SocialAccount) => a.id), [igAccounts]);
 
   const [tab, setTab] = useState<Tab>('rules');
   const [rules, setRules] = useState<DmRule[]>([]);
@@ -64,40 +68,37 @@ export default function EngagementPage() {
   }, []);
 
   const loadActivity = useCallback(async () => {
-    if (!igAccounts.length) return;
-    const accountIds = igAccounts.map((a: SocialAccount) => a.id);
+    if (!igAccountIds.length) return;
     const { data } = await supabase
       .from('comment_tracking')
       .select('*')
-      .in('account_id', accountIds)
+      .in('account_id', igAccountIds)
       .order('created_at', { ascending: false })
       .limit(50);
     setActivity(data || []);
-  }, [supabase, igAccounts]);
+  }, [supabase, igAccountIds]);
 
   const loadConversations = useCallback(async () => {
-    if (!igAccounts.length) return;
-    const accountIds = igAccounts.map((a: SocialAccount) => a.id);
+    if (!igAccountIds.length) return;
     const { data } = await supabase
       .from('dm_conversations')
       .select('*')
-      .in('account_id', accountIds)
+      .in('account_id', igAccountIds)
       .order('last_message_at', { ascending: false })
       .limit(50);
     setConversations(data || []);
-  }, [supabase, igAccounts]);
+  }, [supabase, igAccountIds]);
 
   const loadStats = useCallback(async () => {
-    if (!igAccounts.length) return;
-    const accountIds = igAccounts.map((a: SocialAccount) => a.id);
+    if (!igAccountIds.length) return;
     const { data } = await supabase
       .from('engagement_stats')
       .select('*')
-      .in('account_id', accountIds)
+      .in('account_id', igAccountIds)
       .order('date', { ascending: false })
       .limit(30);
     setStats(data || []);
-  }, [supabase, igAccounts]);
+  }, [supabase, igAccountIds]);
 
   const loadConvoMessages = useCallback(async (convoId: string) => {
     setSelectedConvo(convoId);

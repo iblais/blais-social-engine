@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAccountStore } from '@/lib/store/account-store';
 import type { SocialAccount } from '@/types/database';
@@ -13,7 +13,7 @@ export function useBrandAccounts() {
   const { activeBrandId } = useAccountStore();
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [accountIds, setAccountIds] = useState<string[]>([]);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     (async () => {

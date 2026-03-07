@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -79,7 +79,7 @@ function slugify(text: string): string {
 const PUBLIC_BASE = 'blais-social-engine.vercel.app/l';
 
 export default function SmartLinksPage() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const { activeBrandId } = useAccountStore();
 
   // List view state

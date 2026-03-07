@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent } from '@/components/ui/card';
@@ -104,8 +104,9 @@ export default function CalendarPage() {
   const [dragPost, setDragPost] = useState<PostWithRelations | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [bestTimePlatform, setBestTimePlatform] = useState<string>('instagram');
+  const [zoom, setZoom] = useState(64); // row height in px (32-96)
   const { accountIds, activeBrandId } = useBrandAccounts();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -143,7 +144,7 @@ export default function CalendarPage() {
   useEffect(() => {
     if (viewMode !== 'month' && scrollRef.current) {
       const currentHour = new Date().getHours();
-      const scrollTo = Math.max(0, (currentHour - 2) * 64);
+      const scrollTo = Math.max(0, (currentHour - 2) * zoom);
       scrollRef.current.scrollTop = scrollTo;
     }
   }, [viewMode]);
@@ -260,8 +261,8 @@ export default function CalendarPage() {
         className={`w-full flex items-center gap-1 rounded px-1.5 py-1 text-[10px] sm:text-[11px] truncate transition-colors text-left border ${
           canDrag ? 'cursor-grab active:cursor-grabbing' : ''
         } ${dragPost?.id === post.id ? 'opacity-30' : ''} ${
-          post.status === 'posted' ? 'bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-800' :
-          post.status === 'failed' ? 'bg-red-50 border-red-200 dark:bg-red-950 dark:border-red-800' :
+          post.status === 'posted' ? 'bg-red-600 border-red-700 text-white' :
+          post.status === 'failed' ? 'bg-orange-500 border-orange-600 text-white' :
           'bg-background border-border hover:bg-accent'
         }`}
         onClick={(e) => handlePostClick(post, e)}
@@ -328,7 +329,8 @@ export default function CalendarPage() {
             {hours.map((hour) => (
               <div
                 key={hour}
-                className={`grid ${viewMode === 'day' ? 'grid-cols-[60px_1fr]' : 'grid-cols-[60px_repeat(7,1fr)]'} min-h-[64px]`}
+                className={`grid ${viewMode === 'day' ? 'grid-cols-[60px_1fr]' : 'grid-cols-[60px_repeat(7,1fr)]'}`}
+                style={{ minHeight: `${zoom}px` }}
               >
                 {/* Time label */}
                 <div className="p-1 text-[10px] sm:text-xs text-muted-foreground text-right pr-2 border-r border-b flex items-start justify-end pt-1">
@@ -484,6 +486,22 @@ export default function CalendarPage() {
                 <SelectItem value="youtube">YouTube</SelectItem>
               </SelectContent>
             </Select>
+          )}
+
+          {/* Zoom slider (week/day) */}
+          {viewMode !== 'month' && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-muted-foreground">-</span>
+              <input
+                type="range"
+                min={28}
+                max={96}
+                value={zoom}
+                onChange={(e) => setZoom(Number(e.target.value))}
+                className="w-[60px] h-1 accent-primary"
+              />
+              <span className="text-[10px] text-muted-foreground">+</span>
+            </div>
           )}
 
           {/* View mode toggle */}

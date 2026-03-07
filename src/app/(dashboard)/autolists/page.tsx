@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -86,7 +86,7 @@ function formatSchedule(cron: string | null, interval: number | null): string {
 }
 
 export default function AutolistsPage() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const { accounts, activeBrandId } = useBrandAccounts();
 
   const [autolists, setAutolists] = useState<Autolist[]>([]);
