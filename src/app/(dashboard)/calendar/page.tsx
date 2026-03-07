@@ -19,14 +19,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ChevronLeft, ChevronRight, Plus, Pencil, CalendarDays, Clock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Pencil, Clock } from 'lucide-react';
 import {
   startOfMonth,
   endOfMonth,
   startOfWeek,
   endOfWeek,
   eachDayOfInterval,
-  eachHourOfInterval,
   format,
   addMonths,
   subMonths,
@@ -35,7 +34,6 @@ import {
   addDays,
   subDays,
   isSameDay,
-  isSameHour,
   getDay,
   getHours,
   isToday,

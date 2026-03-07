@@ -5,7 +5,9 @@ export async function GET(req: NextRequest) {
   const url = req.nextUrl.searchParams.get('url');
   const itemId = req.nextUrl.searchParams.get('item');
 
-  if (!url) return NextResponse.redirect(new URL('/', req.url));
+  if (!url || (!url.startsWith('https://') && !url.startsWith('http://'))) {
+    return NextResponse.redirect(new URL('/', req.url));
+  }
 
   try {
     const supabase = await createClient();
@@ -25,6 +27,7 @@ export async function GET(req: NextRequest) {
           item_id: itemId,
           referrer: req.headers.get('referer') || null,
           user_agent: req.headers.get('user-agent') || null,
+          country: req.headers.get('x-vercel-ip-country') || null,
         });
 
         // Increment click count on item
@@ -47,5 +50,9 @@ export async function GET(req: NextRequest) {
     // Don't block redirect on tracking errors
   }
 
-  return NextResponse.redirect(url);
+  try {
+    return NextResponse.redirect(new URL(url));
+  } catch {
+    return NextResponse.redirect(new URL('/', req.url));
+  }
 }

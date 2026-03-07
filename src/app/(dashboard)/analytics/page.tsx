@@ -762,7 +762,7 @@ export default function AnalyticsPage() {
                     style={{
                       backgroundColor:
                         intensity === 0
-                          ? 'hsl(var(--muted))'
+                          ? 'var(--muted)'
                           : `rgba(34, 197, 94, ${0.2 + intensity * 0.8})`,
                     }}
                   />
