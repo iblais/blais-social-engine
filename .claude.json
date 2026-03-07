@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "jcodemunch": {
+      "type": "stdio",
+      "command": "C:\\Users\\itsbl\\.local\\bin\\uvx.exe",
+      "args": ["jcodemunch-mcp"],
+      "env": {
+        "JCODEMUNCH_SHARE_SAVINGS": "0"
+      }
+    }
+  }
+}

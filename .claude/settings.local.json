@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(test:*)",
+      "Bash(\"C:\\\\Users\\\\itsbl\\\\.local\\\\bin\\\\uvx.exe\" jcodemunch-mcp:*)"
+    ]
+  }
+}
