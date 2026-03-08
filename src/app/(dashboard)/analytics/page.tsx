@@ -140,24 +140,27 @@ export default function AnalyticsPage() {
   const supabase = useMemo(() => createClient(), []);
 
   const load = useCallback(async () => {
+    // Wait for accountIds to load when a brand is selected
+    if (activeBrandId && accountIds.length === 0) return;
+
     let postsQuery = supabase
       .from('posts')
       .select('id, caption, status, platform, published_at, scheduled_at, created_at, post_metrics(impressions, reach, likes, comments, shares, saves, engagement_rate)')
       .order('scheduled_at', { ascending: false })
       .limit(500);
 
-    if (activeBrandId && accountIds.length) {
+    if (activeBrandId) {
       postsQuery = postsQuery.in('account_id', accountIds);
     }
 
     // Account metrics — fetch ALL history for growth charts, filtered by brand
     let metricsQuery = supabase
       .from('account_metrics')
-      .select('*, social_accounts(platform, username)')
+      .select('*, social_accounts(platform, username, brand_id)')
       .order('collected_at', { ascending: false })
       .limit(2000);
 
-    if (activeBrandId && accountIds.length) {
+    if (activeBrandId) {
       metricsQuery = metricsQuery.in('account_id', accountIds);
     }
 
