@@ -78,6 +78,7 @@ export default function DashboardPage() {
   const [platformData, setPlatformData] = useState<PlatformData[]>([]);
   const [growthMetrics, setGrowthMetrics] = useState<GrowthMetric[]>([]);
   const [latestMetrics, setLatestMetrics] = useState<GrowthMetric[]>([]);
+  const [postEngagement, setPostEngagement] = useState<any[]>([]);
 
   // Load brands for the dropdown
   useEffect(() => {
@@ -178,11 +179,31 @@ export default function DashboardPage() {
     setPlatformData(platData);
 
     // Growth metrics — follower counts, engagement rate over time
-    const { data: metricsData } = await supabase
+    let metricsQuery = supabase
       .from('account_metrics')
       .select('*, social_accounts(platform, username)')
       .order('collected_at', { ascending: false })
+      .limit(500);
+
+    if (activeBrandId && accountIds.length) {
+      metricsQuery = metricsQuery.in('account_id', accountIds);
+    }
+
+    const { data: metricsData } = await metricsQuery;
+
+    // Also fetch post-level engagement for brand
+    let engQuery = supabase
+      .from('post_metrics')
+      .select('*, posts!inner(account_id, platform)')
+      .order('collected_at', { ascending: false })
       .limit(200);
+
+    if (activeBrandId && accountIds.length) {
+      engQuery = engQuery.in('posts.account_id', accountIds);
+    }
+
+    const { data: postMetricsData } = await engQuery;
+    setPostEngagement(postMetricsData || []);
 
     if (metricsData?.length) {
       const enriched = metricsData.map((m: any) => ({
@@ -198,10 +219,29 @@ export default function DashboardPage() {
         if (!latestMap.has(m.account_id)) latestMap.set(m.account_id, m);
       });
       setLatestMetrics(Array.from(latestMap.values()));
+    } else {
+      setGrowthMetrics([]);
+      setLatestMetrics([]);
     }
   }, [supabase, activeBrandId, accountIds]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Engagement totals from post_metrics
+  const engagementTotals = useMemo(() => {
+    let likes = 0, comments = 0, shares = 0, saves = 0, impressions = 0, reach = 0;
+    postEngagement.forEach((m: any) => {
+      likes += m.likes || 0;
+      comments += m.comments || 0;
+      shares += m.shares || 0;
+      saves += m.saves || 0;
+      impressions += m.impressions || 0;
+      reach += m.reach || 0;
+    });
+    return { likes, comments, shares, saves, impressions, reach, count: postEngagement.length };
+  }, [postEngagement]);
+
+  const totalFollowers = useMemo(() => latestMetrics.reduce((s, m) => s + (m.followers || 0), 0), [latestMetrics]);
 
   const maxDayTotal = useMemo(() => Math.max(...dailyData.map((d) => d.total), 1), [dailyData]);
   const totalPlatformPosts = useMemo(() => platformData.reduce((sum, p) => sum + p.count, 0), [platformData]);
@@ -282,16 +322,51 @@ export default function DashboardPage() {
       </div>
 
       {/* Growth Analytics */}
-      {latestMetrics.length > 0 && (
+      {(latestMetrics.length > 0 || engagementTotals.count > 0) && (
         <div className="space-y-4">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <BarChart3 className="h-5 w-5 text-primary" />
             Growth Analytics
           </h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+
+          {/* Total followers banner */}
+          {totalFollowers > 0 && (
+            <div className="bg-gradient-to-r from-primary/10 to-primary/5 rounded-lg p-4 flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Total Followers{activeBrandId ? '' : ' (All Brands)'}</p>
+                <p className="text-3xl font-bold">{totalFollowers.toLocaleString()}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm text-muted-foreground">{latestMetrics.length} accounts</p>
+              </div>
+            </div>
+          )}
+
+          {/* Engagement totals row */}
+          {engagementTotals.count > 0 && (
+            <div className="grid gap-3 grid-cols-3 sm:grid-cols-6">
+              {[
+                { label: 'Likes', value: engagementTotals.likes, color: 'text-pink-500' },
+                { label: 'Comments', value: engagementTotals.comments, color: 'text-blue-500' },
+                { label: 'Shares', value: engagementTotals.shares, color: 'text-green-500' },
+                { label: 'Saves', value: engagementTotals.saves, color: 'text-yellow-500' },
+                { label: 'Impressions', value: engagementTotals.impressions, color: 'text-purple-500' },
+                { label: 'Reach', value: engagementTotals.reach, color: 'text-cyan-500' },
+              ].map(kpi => (
+                <Card key={kpi.label}>
+                  <CardContent className="p-3 text-center">
+                    <p className="text-[10px] text-muted-foreground">{kpi.label}</p>
+                    <p className={`text-lg font-bold ${kpi.color}`}>{kpi.value.toLocaleString()}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {/* Per-account cards with charts */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {latestMetrics.map((m) => {
               const color = PLATFORM_COLORS[m.platform || ''] || '#6B7280';
-              // Find oldest metric for this account to calculate growth
               const accountHistory = growthMetrics
                 .filter((g) => g.account_id === m.account_id)
                 .sort((a, b) => new Date(a.collected_at).getTime() - new Date(b.collected_at).getTime());
@@ -314,56 +389,61 @@ export default function DashboardPage() {
                       <span className="text-sm font-medium capitalize">{m.platform}</span>
                       <span className="text-xs text-muted-foreground">@{m.username}</span>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Followers</p>
-                        <p className="text-xl font-bold">{m.followers?.toLocaleString() || '—'}</p>
-                        {followerGrowth !== 0 && (
-                          <p className={`text-xs font-medium ${followerGrowth > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {followerGrowth > 0 ? '+' : ''}{followerGrowth.toLocaleString()} ({growthPct}%)
-                          </p>
-                        )}
+
+                    {/* Follower chart */}
+                    <div className="mb-3">
+                      <div className="flex items-baseline gap-2">
+                        <p className="text-2xl font-bold">{m.followers?.toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground">followers</p>
                       </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Engagement</p>
-                        <p className="text-xl font-bold">
-                          {m.engagement_rate != null ? `${m.engagement_rate}%` : '—'}
+                      {followerGrowth !== 0 && (
+                        <p className={`text-xs font-medium ${followerGrowth > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {followerGrowth > 0 ? '+' : ''}{followerGrowth.toLocaleString()} ({growthPct}%)
                         </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Following</p>
-                        <p className="text-sm font-medium">{m.following?.toLocaleString() || '—'}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Posts</p>
-                        <p className="text-sm font-medium">{m.posts_count?.toLocaleString() || '—'}</p>
+                      )}
+                    </div>
+
+                    {/* Follower trend chart */}
+                    <div className="mb-3">
+                      <div className="flex items-end gap-px h-16 bg-muted/20 rounded p-1">
+                        {(accountHistory.length > 1 ? accountHistory.slice(-30) : [m]).map((point, i, arr) => {
+                          const max = Math.max(...arr.map((p) => p.followers || 0));
+                          const min = Math.min(...arr.map((p) => p.followers || 0));
+                          const range = max - min || 1;
+                          const height = ((point.followers - min) / range) * 100;
+                          return (
+                            <div
+                              key={i}
+                              className="flex-1 rounded-t-sm transition-all"
+                              style={{
+                                height: `${Math.max(height, 5)}%`,
+                                backgroundColor: color,
+                                opacity: arr.length === 1 ? 0.8 : 0.3 + (i / arr.length) * 0.7,
+                              }}
+                              title={`${point.followers?.toLocaleString()} — ${new Date(point.collected_at).toLocaleDateString()}`}
+                            />
+                          );
+                        })}
                       </div>
                     </div>
-                    {accountHistory.length > 1 && (
-                      <div className="mt-3 pt-3 border-t">
-                        <p className="text-xs text-muted-foreground mb-1">Follower trend</p>
-                        <div className="flex items-end gap-px h-8">
-                          {accountHistory.slice(-14).map((point, i) => {
-                            const max = Math.max(...accountHistory.slice(-14).map((p) => p.followers || 0));
-                            const min = Math.min(...accountHistory.slice(-14).map((p) => p.followers || 0));
-                            const range = max - min || 1;
-                            const height = ((point.followers - min) / range) * 100;
-                            return (
-                              <div
-                                key={i}
-                                className="flex-1 rounded-t-sm"
-                                style={{
-                                  height: `${Math.max(height, 10)}%`,
-                                  backgroundColor: color,
-                                  opacity: 0.4 + (i / 14) * 0.6,
-                                }}
-                                title={`${point.followers?.toLocaleString()} — ${new Date(point.collected_at).toLocaleDateString()}`}
-                              />
-                            );
-                          })}
-                        </div>
+
+                    {/* Stats grid */}
+                    <div className="grid grid-cols-3 gap-2 text-center pt-2 border-t">
+                      <div>
+                        <p className="text-[10px] text-muted-foreground">Following</p>
+                        <p className="text-sm font-semibold">{m.following?.toLocaleString() || '—'}</p>
                       </div>
-                    )}
+                      <div>
+                        <p className="text-[10px] text-muted-foreground">Posts</p>
+                        <p className="text-sm font-semibold">{m.posts_count?.toLocaleString() || '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-muted-foreground">Engagement</p>
+                        <p className="text-sm font-semibold">
+                          {m.engagement_rate != null && m.engagement_rate > 0 ? `${m.engagement_rate}%` : '—'}
+                        </p>
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               );

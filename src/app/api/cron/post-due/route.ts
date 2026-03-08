@@ -307,6 +307,30 @@ export async function GET(req: NextRequest) {
       continue;
     }
 
+    // Duplicate detection: skip if same caption was already posted to same account
+    if (post.caption) {
+      const captionPrefix = post.caption.substring(0, 80);
+      const { data: alreadyPosted } = await supabase
+        .from('posts')
+        .select('id')
+        .eq('account_id', post.account_id)
+        .eq('status', 'posted')
+        .like('caption', captionPrefix + '%')
+        .neq('id', post.id)
+        .limit(1);
+
+      if (alreadyPosted && alreadyPosted.length > 0) {
+        console.log(`[post-due] SKIP duplicate: "${captionPrefix.substring(0, 40)}..." already posted to ${account.platform}/${account.username}`);
+        await supabase.from('posts').update({
+          status: 'failed',
+          error_message: 'Duplicate — same content already posted to this account',
+        }).eq('id', post.id);
+        failed++;
+        results.push({ id: post.id, status: 'duplicate', error: 'Already posted to this account' });
+        continue;
+      }
+    }
+
     // Mark as publishing
     await supabase.from('posts').update({ status: 'publishing' }).eq('id', post.id);
 
