@@ -241,15 +241,25 @@ export async function GET(req: NextRequest) {
   // 0) Self-heal: fix posts stuck in "publishing" from previous timeout
   const healed = await healStuckPosts(supabase);
 
-  // 1) Fetch scheduled posts that are due (skip twitter entirely)
-  const { data: duePosts, error } = await supabase
-    .from('posts')
-    .select('*, social_accounts(*), post_media(*)')
-    .eq('status', 'scheduled')
-    .lte('scheduled_at', now)
-    .neq('platform', 'twitter')
-    .order('scheduled_at', { ascending: true })
-    .limit(10);
+  // 1) Atomically claim scheduled posts by setting status='publishing' in one step
+  //    This prevents race conditions when multiple cron instances run concurrently
+  const { data: claimedIds } = await supabase.rpc('claim_due_posts', {
+    max_posts: 10,
+    due_before: now,
+  });
+
+  // Fetch full post data for claimed posts
+  let duePosts: any[] = [];
+  let error: any = null;
+  if (claimedIds && claimedIds.length > 0) {
+    const ids = claimedIds.map((r: any) => r.id);
+    const result = await supabase
+      .from('posts')
+      .select('*, social_accounts(*), post_media(*)')
+      .in('id', ids);
+    duePosts = result.data || [];
+    error = result.error;
+  }
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -272,13 +282,13 @@ export async function GET(req: NextRequest) {
     return Date.now() - updatedAt >= backoffMs;
   });
 
-  // Combine due posts + ready retries, then pick max 1 per platform
+  // Combine due posts + ready retries, then pick max 1 per account
   const combined = [...(duePosts || []), ...readyRetries];
-  const seenPlatforms = new Set<string>();
+  const seenAccounts = new Set<string>();
   const allPosts = combined.filter((p) => {
-    const platform = p.social_accounts?.platform || p.platform;
-    if (seenPlatforms.has(platform)) return false;
-    seenPlatforms.add(platform);
+    const accountId = p.account_id;
+    if (seenAccounts.has(accountId)) return false;
+    seenAccounts.add(accountId);
     return true;
   });
 
@@ -330,9 +340,6 @@ export async function GET(req: NextRequest) {
         continue;
       }
     }
-
-    // Mark as publishing
-    await supabase.from('posts').update({ status: 'publishing' }).eq('id', post.id);
 
     try {
       // Refresh token — THROWS on failure instead of returning expired token
@@ -518,28 +525,12 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // 3) If there are more posts due, trigger another run via fetch (self-chain)
-  const { count: remaining } = await supabase
-    .from('posts')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'scheduled')
-    .lte('scheduled_at', new Date().toISOString());
-
-  if (remaining && remaining > 0) {
-    // Fire-and-forget: trigger another cron run to process remaining posts
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://blais-social-engine.vercel.app';
-    fetch(`${appUrl}/api/cron/post-due`, {
-      headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` },
-    }).catch(() => {}); // fire-and-forget
-  }
-
   return NextResponse.json({
     message: 'Done',
     processed,
     failed,
     total: allPosts.length,
     healed,
-    remaining: remaining || 0,
     retries_processed: readyRetries.length,
     results,
   });

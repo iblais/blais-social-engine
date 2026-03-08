@@ -39,6 +39,7 @@ No markdown.`;
     const analysis = JSON.parse(cleaned.slice(startIdx, endIdx + 1));
     return NextResponse.json(analysis);
   } catch (err) {
+    console.error('Thumbnail analyze error:', (err as Error).message);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }

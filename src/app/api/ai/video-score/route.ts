@@ -47,6 +47,7 @@ No markdown.`;
     const scores = JSON.parse(cleaned.slice(startIdx, endIdx + 1));
     return NextResponse.json(scores);
   } catch (err) {
+    console.error('Video score error:', (err as Error).message);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }

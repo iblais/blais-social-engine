@@ -54,6 +54,7 @@ export default function MediaLibraryPage() {
   }
 
   async function deleteAsset(asset: MediaAsset) {
+    if (!confirm(`Delete "${asset.file_name}"?`)) return;
     await supabase.storage.from('media').remove([asset.storage_path]);
     await supabase.from('media_assets').delete().eq('id', asset.id);
     toast.success('Deleted');
@@ -97,9 +98,9 @@ export default function MediaLibraryPage() {
                 ) : (
                   <img src={asset.url} alt={asset.file_name} className="w-full h-full object-cover" />
                 )}
-                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <Button variant="ghost" size="icon" onClick={() => deleteAsset(asset)} className="text-white">
-                    <Trash2 className="h-4 w-4" />
+                <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                  <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); deleteAsset(asset); }} className="bg-black/60 hover:bg-red-600 text-white h-7 w-7">
+                    <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </div>
               </div>

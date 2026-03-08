@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
           likes: Number(stats?.likeCount || 0),
           comments: Number(stats?.commentCount || 0),
           duration: content?.duration,
-          tags: snippet?.tags || [],
+          tags: (snippet?.tags as string[]) || [],
           description: (snippet?.description as string)?.slice(0, 200) || '',
           thumbnail: (snippet?.thumbnails as Record<string, { url: string }> | undefined)?.medium?.url,
         };

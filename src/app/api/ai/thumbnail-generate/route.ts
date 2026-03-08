@@ -40,6 +40,7 @@ Requirements:
     });
     return NextResponse.json({ thumbnails: images });
   } catch (err) {
+    console.error('Thumbnail generate error:', (err as Error).message);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }

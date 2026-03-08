@@ -44,6 +44,7 @@ No markdown, no code blocks.`;
     const tags = JSON.parse(cleaned.slice(startIdx, endIdx + 1));
     return NextResponse.json({ tags });
   } catch (err) {
+    console.error('YouTube tags error:', (err as Error).message);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }

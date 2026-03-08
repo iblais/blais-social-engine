@@ -148,7 +148,7 @@ export async function GET(req: NextRequest) {
                       if (vidsRes.ok) {
                         const vidsData = await vidsRes.json();
                         for (const v of vidsData.items || []) {
-                          await supabase.from('competitor_videos').upsert({
+                          const { error: upsertErr } = await supabase.from('competitor_videos').upsert({
                             competitor_id: comp.id,
                             video_id: v.id,
                             title: v.snippet?.title,
@@ -159,7 +159,8 @@ export async function GET(req: NextRequest) {
                             duration: v.contentDetails?.duration,
                             tags: v.snippet?.tags || [],
                             thumbnail_url: v.snippet?.thumbnails?.medium?.url,
-                          }, { onConflict: 'competitor_id,video_id' });
+                          }, { onConflict: 'competitor_id, video_id' });
+                          if (upsertErr) console.error(`Video upsert error for ${v.id}:`, upsertErr.message);
                         }
                       }
                     }

@@ -53,6 +53,7 @@ Return ONLY the script text.`;
     const script = await geminiGenerate(prompt, apiKey);
     return NextResponse.json({ script: script.trim() });
   } catch (err) {
+    console.error('YouTube script error:', (err as Error).message);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }

@@ -43,6 +43,7 @@ No markdown, no code blocks.`;
     const titles = JSON.parse(cleaned.slice(startIdx, endIdx + 1));
     return NextResponse.json({ titles });
   } catch (err) {
+    console.error('YouTube title error:', (err as Error).message);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }

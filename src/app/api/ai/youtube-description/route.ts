@@ -38,6 +38,7 @@ Return ONLY the description text, no wrapping quotes or markdown.`;
     const description = await geminiGenerate(prompt, apiKey);
     return NextResponse.json({ description: description.trim() });
   } catch (err) {
+    console.error('YouTube description error:', (err as Error).message);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }

@@ -345,6 +345,7 @@ export interface CuratedContent {
   source: string | null;
   is_saved: boolean;
   is_used: boolean;
+  published_at: string | null;
   created_at: string;
 }
 
@@ -357,5 +358,42 @@ export interface EngagementStats {
   dms_sent: number;
   ai_replies: number;
   rules_triggered: number;
+  created_at: string;
+}
+
+export interface YouTubeAudit {
+  id: string;
+  account_id: string;
+  user_id: string;
+  audit_data: Record<string, unknown>;
+  score: number | null;
+  recommendations: string[];
+  best_post_times: Array<{ day: string; hour: number; performance: string }>;
+  created_at: string;
+}
+
+export interface CompetitorVideo {
+  id: string;
+  competitor_id: string;
+  video_id: string;
+  title: string | null;
+  published_at: string | null;
+  views: number;
+  likes: number;
+  comments: number;
+  duration: string | null;
+  tags: string[];
+  thumbnail_url: string | null;
+  created_at: string;
+}
+
+export interface YouTubeKeyword {
+  id: string;
+  user_id: string;
+  keyword: string;
+  parent_keyword: string | null;
+  search_volume_tier: string | null;
+  competition_tier: string | null;
+  niche: string | null;
   created_at: string;
 }

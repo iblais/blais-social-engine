@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, Fragment } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -75,16 +75,19 @@ function ScoreRing({ score, label, size = 'md' }: { score: number; label: string
   const r = (s - 10) / 2;
   const circ = 2 * Math.PI * r;
   const offset = circ - (score / 100) * circ;
+  const fontSize = size === 'lg' ? 'text-2xl' : size === 'md' ? 'text-lg' : 'text-sm';
 
   return (
     <div className="flex flex-col items-center gap-1">
-      <svg width={s} height={s} className="-rotate-90">
-        <circle cx={s/2} cy={s/2} r={r} fill="none" stroke="currentColor" strokeWidth="4" className="text-muted/20" />
-        <circle cx={s/2} cy={s/2} r={r} fill="none" stroke={color} strokeWidth="4" strokeLinecap="round"
-          strokeDasharray={circ} strokeDashoffset={offset} />
-      </svg>
-      <span className="text-lg font-bold" style={{ color, marginTop: -s/2 - 8 + 'px', position: 'relative' }}>{score}</span>
-      <span className="text-xs text-muted-foreground mt-2 capitalize">{label.replace('_', ' ')}</span>
+      <div className="relative" style={{ width: s, height: s }}>
+        <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`} className="-rotate-90">
+          <circle cx={s/2} cy={s/2} r={r} fill="none" stroke="currentColor" strokeWidth="4" className="text-muted-foreground/20" />
+          <circle cx={s/2} cy={s/2} r={r} fill="none" stroke={color} strokeWidth="4" strokeLinecap="round"
+            strokeDasharray={circ} strokeDashoffset={offset} />
+        </svg>
+        <span className={`absolute inset-0 flex items-center justify-center ${fontSize} font-bold`} style={{ color }}>{score}</span>
+      </div>
+      <span className="text-xs text-muted-foreground capitalize">{label.replace('_', ' ')}</span>
     </div>
   );
 }
@@ -110,8 +113,8 @@ function HeatMap({ times }: { times: Array<{ day: string; hour: number; performa
           <div key={h} className="text-[10px] text-center text-muted-foreground">{h}</div>
         ))}
         {DAYS.map(day => (
-          <>
-            <div key={day} className="text-xs text-right pr-2 leading-5">{day}</div>
+          <Fragment key={day}>
+            <div className="text-xs text-right pr-2 leading-5">{day}</div>
             {HOURS.map(h => {
               const key = `${day}-${h}`;
               const fullDay = Object.keys(heatData).find(k => k.toLowerCase().startsWith(day.toLowerCase()));
@@ -124,7 +127,7 @@ function HeatMap({ times }: { times: Array<{ day: string; hour: number; performa
                 />
               );
             })}
-          </>
+          </Fragment>
         ))}
       </div>
     </div>
@@ -139,13 +142,13 @@ export default function YouTubeAuditPage() {
   const [result, setResult] = useState<AuditResult | null>(null);
   const [expandedVideo, setExpandedVideo] = useState<string | null>(null);
 
-  const ytAccounts = accounts.filter(a => a.platform === 'youtube');
+  const ytAccounts = useMemo(() => accounts.filter(a => a.platform === 'youtube'), [accounts]);
 
   useEffect(() => {
     if (ytAccounts.length > 0 && !selectedAccount) {
       setSelectedAccount(ytAccounts[0].id);
     }
-  }, [ytAccounts, selectedAccount]);
+  }, [ytAccounts]);
 
   async function runAudit() {
     if (!selectedAccount) { toast.error('Select a YouTube account'); return; }
@@ -200,7 +203,7 @@ export default function YouTubeAuditPage() {
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
-                {channel.thumbnail && <img src={channel.thumbnail} alt="" className="w-16 h-16 rounded-full" />}
+                {channel.thumbnail && <img src={channel.thumbnail} alt="thumbnail" className="w-16 h-16 rounded-full" />}
                 <div>
                   <h2 className="text-xl font-bold">{channel.title}</h2>
                   <p className="text-sm text-muted-foreground">{channel.customUrl}</p>
@@ -280,7 +283,7 @@ export default function YouTubeAuditPage() {
                         className="w-full flex items-center gap-3 p-3 text-left hover:bg-muted/50 transition-colors"
                       >
                         {expandedVideo === v.id ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                        {v.thumbnail && <img src={v.thumbnail} alt="" className="w-24 h-14 object-cover rounded shrink-0" />}
+                        {v.thumbnail && <img src={v.thumbnail} alt="thumbnail" className="w-24 h-14 object-cover rounded shrink-0" />}
                         <div className="flex-1 min-w-0">
                           <p className="font-medium text-sm truncate">{v.title}</p>
                           <p className="text-xs text-muted-foreground">{new Date(v.publishedAt).toLocaleDateString()}</p>

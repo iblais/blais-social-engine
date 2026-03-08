@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { useBrandAccounts } from '@/lib/hooks/use-brand-accounts';
+import { useAccountStore } from '@/lib/store/account-store';
 import {
   Plus,
   Trash2,
@@ -54,10 +55,24 @@ interface CuratedItem {
   source: string | null;
   is_saved: boolean;
   is_used: boolean;
+  published_at: string | null;
   created_at: string;
 }
 
 type ContentFilter = 'all' | 'saved' | 'used';
+
+function timeAgo(dateStr: string): string {
+  const now = Date.now();
+  const diff = now - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(dateStr).toLocaleDateString();
+}
 
 export default function CurationPage() {
   const supabase = useMemo(() => createClient(), []);
@@ -157,7 +172,7 @@ export default function CurationPage() {
     let query = supabase
       .from('curated_content')
       .select('*')
-      .order('created_at', { ascending: false })
+      .order('published_at', { ascending: false, nullsFirst: false })
       .limit(200);
 
     if (activeBrandId) {
@@ -210,10 +225,19 @@ export default function CurationPage() {
 
   // ---------- Effects ----------
 
+  // Wait for Zustand persist hydration before loading
+  const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
+    const unsub = useAccountStore.persist.onFinishHydration(() => setHydrated(true));
+    if (useAccountStore.persist.hasHydrated()) setHydrated(true);
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
     loadFeeds();
     loadContent();
-  }, [loadFeeds, loadContent]);
+  }, [hydrated, loadFeeds, loadContent]);
 
   // ---------- Render ----------
 
@@ -381,11 +405,11 @@ export default function CurationPage() {
               {filteredContent.map((item) => (
                 <Card key={item.id} className="flex flex-col">
                   {item.image_url && (
-                    <div className="relative aspect-video w-full overflow-hidden rounded-t-lg">
+                    <div className="flex items-center justify-center bg-muted rounded-t-lg p-2 max-h-40">
                       <img
                         src={item.image_url}
                         alt={item.title}
-                        className="h-full w-full object-cover"
+                        className="max-h-36 max-w-full object-contain rounded"
                       />
                     </div>
                   )}
@@ -407,9 +431,10 @@ export default function CurationPage() {
                         )}
                       </div>
                     </div>
-                    {item.source && (
-                      <p className="text-xs text-muted-foreground">{item.source}</p>
-                    )}
+                    <p className="text-xs text-muted-foreground">
+                      {item.source || ''}
+                      {item.published_at ? ` · ${timeAgo(item.published_at)}` : ''}
+                    </p>
                   </CardHeader>
                   <CardContent className="flex flex-1 flex-col justify-between gap-3">
                     {item.summary && (
