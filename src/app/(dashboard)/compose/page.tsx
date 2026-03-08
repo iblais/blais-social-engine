@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { ImagePlus, Clock, Save, Trash2, ArrowLeft, Check, Sparkles } from 'lucide-react';
+import { ImagePlus, Clock, Save, Send, Trash2, ArrowLeft, Check, Sparkles } from 'lucide-react';
 import type { SocialAccount, PostMedia } from '@/types/database';
 import { useBrandAccounts } from '@/lib/hooks/use-brand-accounts';
 
@@ -38,6 +38,7 @@ export default function ComposePage() {
   const [loadingPost, setLoadingPost] = useState(false);
   const [aiCaptionLoading, setAiCaptionLoading] = useState(false);
   const [firstComment, setFirstComment] = useState('');
+  const [uploadProgress, setUploadProgress] = useState('');
 
   // Multi-platform: which accounts are enabled for this post
   const [enabledAccountIds, setEnabledAccountIds] = useState<Set<string>>(new Set());
@@ -210,7 +211,7 @@ export default function ComposePage() {
     return meta?.charLimit || 2200;
   }, [previewPlatform]);
 
-  async function handleSubmit(status: 'draft' | 'scheduled') {
+  async function handleSubmit(status: 'draft' | 'scheduled' | 'now') {
     const enabled = Array.from(enabledAccountIds);
     if (!enabled.length) {
       toast.error('Select at least one platform');
@@ -222,12 +223,17 @@ export default function ComposePage() {
     }
 
     setLoading(true);
+    setUploadProgress(mediaFiles.length ? 'Uploading media...' : 'Saving...');
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { toast.error('Not authenticated'); setLoading(false); return; }
 
       const totalMedia = existingMedia.filter((m) => !removedMediaIds.includes(m.id)).length + mediaFiles.length;
-      const scheduledIso = status === 'scheduled' ? new Date(scheduledAt).toISOString() : null;
+      // "now" = schedule 10 seconds from now so the cron picks it up immediately
+      const dbStatus = status === 'now' ? 'scheduled' : status;
+      const scheduledIso = status === 'now'
+        ? new Date(Date.now() + 10_000).toISOString()
+        : status === 'scheduled' ? new Date(scheduledAt).toISOString() : null;
 
       // Detect media type based on content and platform
       function getMediaType(platform: string): string {
@@ -252,7 +258,7 @@ export default function ComposePage() {
           first_comment: firstComment || null,
           media_type: getMediaType(originalAcc.platform),
           post_type: postTypes[originalAcc.id] || 'post',
-          status,
+          status: dbStatus,
           scheduled_at: scheduledIso,
           account_id: originalAcc.id,
           platform: originalAcc.platform,
@@ -284,7 +290,7 @@ export default function ComposePage() {
             first_comment: firstComment || null,
             media_type: getMediaType(acc.platform),
             post_type: postTypes[accId] || 'post',
-            status,
+            status: dbStatus,
             scheduled_at: scheduledIso,
           }).select('id').single();
 
@@ -315,7 +321,7 @@ export default function ComposePage() {
             first_comment: firstComment || null,
             media_type: getMediaType(acc.platform),
             post_type: postTypes[accId] || 'post',
-            status,
+            status: dbStatus,
             scheduled_at: scheduledIso,
           }).select('id').single();
 
@@ -328,7 +334,16 @@ export default function ComposePage() {
           created++;
         }
 
-        toast.success(`${status === 'scheduled' ? 'Scheduled' : 'Saved'} to ${created} platform${created !== 1 ? 's' : ''}!`);
+        const verb = status === 'now' ? 'Posting now to' : status === 'scheduled' ? 'Scheduled to' : 'Saved to';
+        toast.success(`${verb} ${created} platform${created !== 1 ? 's' : ''}!`);
+      }
+
+      // If "Post Now", trigger posting immediately via server-side relay
+      if (status === 'now') {
+        setUploadProgress('Publishing...');
+        try {
+          await fetch('/api/posts/publish', { method: 'POST' });
+        } catch { /* cron will pick it up anyway */ }
       }
 
       router.push('/queue');
@@ -336,12 +351,15 @@ export default function ComposePage() {
       toast.error(`Error: ${(err as Error).message}`);
     } finally {
       setLoading(false);
+      setUploadProgress('');
     }
   }
 
   async function uploadMedia(postId: string, startIndex: number) {
     for (let i = 0; i < mediaFiles.length; i++) {
       const file = mediaFiles[i];
+      const sizeMB = (file.size / 1_048_576).toFixed(1);
+      setUploadProgress(`Uploading ${file.name} (${sizeMB} MB)... ${i + 1}/${mediaFiles.length}`);
       const ext = file.name.split('.').pop();
       const storagePath = `posts/${postId}/${startIndex + i}.${ext}`;
       const { error: uploadError } = await supabase.storage.from('media').upload(storagePath, file);
@@ -524,12 +542,21 @@ export default function ComposePage() {
                 <Input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} />
               </CardContent>
             </Card>
+            {loading && uploadProgress && (
+              <p className="text-sm text-muted-foreground text-center animate-pulse">{uploadProgress}</p>
+            )}
             <div className="flex gap-2">
-              <Button onClick={() => handleSubmit('scheduled')} disabled={loading} className="flex-1">
-                <Clock className="h-4 w-4 mr-2" />
-                {loading ? 'Saving...' : editId ? 'Update' : `Schedule (${enabledAccountIds.size})`}
+              <Button onClick={() => handleSubmit('now')} disabled={loading} className="flex-1 bg-green-600 hover:bg-green-700">
+                <Send className="h-4 w-4 mr-2" />
+                {loading ? uploadProgress || 'Posting...' : `Post Now (${enabledAccountIds.size})`}
               </Button>
-              <Button variant="outline" onClick={() => handleSubmit('draft')} disabled={loading}>
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={() => handleSubmit('scheduled')} disabled={loading} className="flex-1" variant="outline">
+                <Clock className="h-4 w-4 mr-2" />
+                {editId ? 'Update' : `Schedule (${enabledAccountIds.size})`}
+              </Button>
+              <Button variant="ghost" onClick={() => handleSubmit('draft')} disabled={loading}>
                 <Save className="h-4 w-4 mr-1" />Draft
               </Button>
             </div>
@@ -633,11 +660,18 @@ export default function ComposePage() {
 
           {/* Actions */}
           <div className="flex flex-col gap-2">
-            <Button onClick={() => handleSubmit('scheduled')} disabled={loading} className="w-full">
-              <Clock className="h-4 w-4 mr-2" />
-              {loading ? 'Saving...' : editId ? 'Update & Schedule' : `Schedule to ${enabledAccountIds.size} platform${enabledAccountIds.size !== 1 ? 's' : ''}`}
+            {loading && uploadProgress && (
+              <p className="text-sm text-muted-foreground text-center animate-pulse">{uploadProgress}</p>
+            )}
+            <Button onClick={() => handleSubmit('now')} disabled={loading} className="w-full bg-green-600 hover:bg-green-700">
+              <Send className="h-4 w-4 mr-2" />
+              {loading ? uploadProgress || 'Posting...' : `Post Now to ${enabledAccountIds.size} platform${enabledAccountIds.size !== 1 ? 's' : ''}`}
             </Button>
-            <Button variant="outline" onClick={() => handleSubmit('draft')} disabled={loading} className="w-full">
+            <Button onClick={() => handleSubmit('scheduled')} disabled={loading} className="w-full" variant="outline">
+              <Clock className="h-4 w-4 mr-2" />
+              {editId ? 'Update & Schedule' : `Schedule to ${enabledAccountIds.size} platform${enabledAccountIds.size !== 1 ? 's' : ''}`}
+            </Button>
+            <Button variant="ghost" onClick={() => handleSubmit('draft')} disabled={loading} className="w-full">
               <Save className="h-4 w-4 mr-2" />
               {editId ? 'Save Changes' : 'Save as Draft'}
             </Button>
