@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,9 +28,14 @@ import {
   Sparkles,
   Download,
   Upload,
+  Lightbulb,
+  Shuffle,
+  CheckSquare,
+  Check,
+  X,
 } from 'lucide-react';
 
-type Tab = 'titles' | 'descriptions' | 'scripts' | 'tags' | 'thumbnails';
+type Tab = 'titles' | 'descriptions' | 'scripts' | 'tags' | 'thumbnails' | 'ideas' | 'remix' | 'seo';
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'titles', label: 'Titles', icon: Type },
@@ -37,6 +43,9 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'scripts', label: 'Scripts', icon: ScrollText },
   { id: 'tags', label: 'Tags', icon: Tags },
   { id: 'thumbnails', label: 'Thumbnails', icon: ImageIcon },
+  { id: 'ideas', label: 'Ideas', icon: Lightbulb },
+  { id: 'remix', label: 'Remix', icon: Shuffle },
+  { id: 'seo', label: 'SEO Check', icon: CheckSquare },
 ];
 
 function ScoreBadge({ score }: { score: number }) {
@@ -90,6 +99,27 @@ export default function YouTubeStudioPage() {
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [thumbImage, setThumbImage] = useState<string | null>(null);
   const [thumbAnalysis, setThumbAnalysis] = useState<Record<string, unknown> | null>(null);
+
+  // Ideas state
+  const [ideasNiche, setIdeasNiche] = useState('');
+  const [ideasChannel, setIdeasChannel] = useState('');
+  const [ideasTopVideos, setIdeasTopVideos] = useState('');
+  const [ideasCount, setIdeasCount] = useState('10');
+  const [ideas, setIdeas] = useState<Array<{ title: string; format: string; difficulty: string; reason: string; trendScore: number }>>([]);
+
+  // Remix state
+  const [remixUrl, setRemixUrl] = useState('');
+  const [remixTitle, setRemixTitle] = useState('');
+  const [remixNiche, setRemixNiche] = useState('');
+  const [remixes, setRemixes] = useState<Array<{ title: string; angle: string; format: string; hook: string }>>([]);
+
+  // SEO Checklist state
+  const [seoTitle, setSeoTitle] = useState('');
+  const [seoDescription, setSeoDescription] = useState('');
+  const [seoTags, setSeoTags] = useState('');
+  const [seoThumbUrl, setSeoThumbUrl] = useState('');
+  const [seoItems, setSeoItems] = useState<Array<{ check: string; passed: boolean; tip: string }>>([]);
+  const [seoScore, setSeoScore] = useState<number | null>(null);
 
   async function generateTitles() {
     if (!titleTopic) { toast.error('Enter a topic'); return; }
@@ -199,6 +229,60 @@ export default function YouTubeStudioPage() {
     setLoading(false);
   }
 
+  async function generateIdeas() {
+    if (!ideasNiche) { toast.error('Enter a niche'); return; }
+    setLoading(true);
+    try {
+      const topVideos = ideasTopVideos.trim() ? ideasTopVideos.split('\n').map(v => v.trim()).filter(Boolean) : undefined;
+      const res = await fetch('/api/ai/youtube-ideas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ niche: ideasNiche, channelName: ideasChannel, topVideos, count: parseInt(ideasCount) || 10 }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setIdeas(data.ideas);
+      toast.success(`Generated ${data.ideas.length} video ideas`);
+    } catch (err) { toast.error((err as Error).message); }
+    setLoading(false);
+  }
+
+  async function generateRemixes() {
+    if (!remixTitle) { toast.error('Enter a video title'); return; }
+    setLoading(true);
+    try {
+      const res = await fetch('/api/ai/youtube-remix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoUrl: remixUrl, videoTitle: remixTitle, channelNiche: remixNiche }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setRemixes(data.remixes);
+      toast.success(`Generated ${data.remixes.length} remix ideas`);
+    } catch (err) { toast.error((err as Error).message); }
+    setLoading(false);
+  }
+
+  async function runSeoChecklist() {
+    if (!seoTitle) { toast.error('Enter a title'); return; }
+    setLoading(true);
+    try {
+      const tagsArray = seoTags.trim() ? seoTags.split(',').map(t => t.trim()).filter(Boolean) : [];
+      const res = await fetch('/api/ai/seo-checklist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: seoTitle, description: seoDescription, tags: tagsArray, thumbnailUrl: seoThumbUrl || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setSeoItems(data.items);
+      setSeoScore(data.score);
+      toast.success('SEO checklist complete');
+    } catch (err) { toast.error((err as Error).message); }
+    setLoading(false);
+  }
+
   function handleThumbUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -220,6 +304,21 @@ export default function YouTubeStudioPage() {
           <h1 className="text-2xl font-bold">YouTube Studio</h1>
           <p className="text-muted-foreground">AI-powered tools for YouTube content creation</p>
         </div>
+      </div>
+
+      {/* Quick links to sub-pages */}
+      <div className="flex flex-wrap gap-2">
+        {[
+          { href: '/youtube/audit', label: 'Channel Audit' },
+          { href: '/youtube/keywords', label: 'Keyword Research' },
+          { href: '/youtube/growth', label: 'Growth Tracking' },
+          { href: '/youtube/comments', label: 'Comments' },
+          { href: '/youtube/seo', label: 'SEO Tools' },
+        ].map(link => (
+          <Link key={link.href} href={link.href}>
+            <Button variant="outline" size="sm">{link.label}</Button>
+          </Link>
+        ))}
       </div>
 
       {/* Tab bar */}
@@ -562,6 +661,205 @@ export default function YouTubeStudioPage() {
 
               {!thumbAnalysis && thumbnails.length === 0 && (
                 <p className="text-muted-foreground text-center py-8">Generate or analyze thumbnails to see results here</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Ideas Tab */}
+      {activeTab === 'ideas' && (
+        <div className="grid gap-6 md:grid-cols-[1fr_1.5fr]">
+          <Card>
+            <CardHeader><CardTitle className="flex items-center gap-2"><Lightbulb className="h-4 w-4" /> Video Ideas Generator</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Niche *</Label>
+                <Input placeholder="e.g., tech reviews, fitness, cooking" value={ideasNiche} onChange={e => setIdeasNiche(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Channel Name</Label>
+                <Input placeholder="Your channel name" value={ideasChannel} onChange={e => setIdeasChannel(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Top Videos (one per line)</Label>
+                <Textarea placeholder="Paste your best-performing video titles for reference" value={ideasTopVideos} onChange={e => setIdeasTopVideos(e.target.value)} rows={3} />
+              </div>
+              <div className="space-y-2">
+                <Label>Number of Ideas</Label>
+                <Select value={ideasCount} onValueChange={setIdeasCount}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="5">5 ideas</SelectItem>
+                    <SelectItem value="10">10 ideas</SelectItem>
+                    <SelectItem value="15">15 ideas</SelectItem>
+                    <SelectItem value="20">20 ideas</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button onClick={generateIdeas} disabled={loading} className="w-full bg-red-600 hover:bg-red-700">
+                {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Lightbulb className="h-4 w-4 mr-2" />}
+                Generate Ideas
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle>Video Ideas ({ideas.length})</CardTitle></CardHeader>
+            <CardContent>
+              {ideas.length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">Generate ideas to see results here</p>
+              ) : (
+                <div className="space-y-3">
+                  {ideas.map((idea, i) => (
+                    <div key={i} className="p-3 rounded-lg border hover:bg-muted/50 transition-colors">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium">{idea.title}</p>
+                          <div className="flex items-center gap-2 mt-1.5">
+                            <Badge variant="outline">{idea.format}</Badge>
+                            <Badge className={
+                              idea.difficulty === 'easy' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                              idea.difficulty === 'medium' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
+                              'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                            }>{idea.difficulty}</Badge>
+                            <span className="text-xs text-muted-foreground">Trend: <ScoreBadge score={idea.trendScore} /></span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1.5">{idea.reason}</p>
+                        </div>
+                        <Button size="icon" variant="ghost" onClick={() => copyToClipboard(idea.title)}>
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Remix Tab */}
+      {activeTab === 'remix' && (
+        <div className="grid gap-6 md:grid-cols-[1fr_1.5fr]">
+          <Card>
+            <CardHeader><CardTitle className="flex items-center gap-2"><Shuffle className="h-4 w-4" /> Content Remixer</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Video Title *</Label>
+                <Input placeholder="Title of the video to remix" value={remixTitle} onChange={e => setRemixTitle(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Video URL</Label>
+                <Input placeholder="https://youtube.com/watch?v=..." value={remixUrl} onChange={e => setRemixUrl(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Your Channel Niche</Label>
+                <Input placeholder="e.g., tech, fitness, cooking" value={remixNiche} onChange={e => setRemixNiche(e.target.value)} />
+              </div>
+              <Button onClick={generateRemixes} disabled={loading} className="w-full bg-red-600 hover:bg-red-700">
+                {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Shuffle className="h-4 w-4 mr-2" />}
+                Generate Remixes
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle>Remix Ideas ({remixes.length})</CardTitle></CardHeader>
+            <CardContent>
+              {remixes.length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">Enter a video to remix and see ideas here</p>
+              ) : (
+                <div className="space-y-3">
+                  {remixes.map((remix, i) => (
+                    <div key={i} className="p-3 rounded-lg border hover:bg-muted/50 transition-colors">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium">{remix.title}</p>
+                          <div className="flex items-center gap-2 mt-1.5">
+                            <Badge variant="outline" className="capitalize">{remix.angle.replace('-', ' ')}</Badge>
+                            <Badge variant="secondary">{remix.format}</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1.5 italic">&quot;{remix.hook}&quot;</p>
+                        </div>
+                        <Button size="icon" variant="ghost" onClick={() => copyToClipboard(remix.title)}>
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* SEO Checklist Tab */}
+      {activeTab === 'seo' && (
+        <div className="grid gap-6 md:grid-cols-[1fr_1.5fr]">
+          <Card>
+            <CardHeader><CardTitle className="flex items-center gap-2"><CheckSquare className="h-4 w-4" /> SEO Checklist</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Video Title *</Label>
+                <Input placeholder="Your video title" value={seoTitle} onChange={e => setSeoTitle(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Description</Label>
+                <Textarea placeholder="Your video description" value={seoDescription} onChange={e => setSeoDescription(e.target.value)} rows={4} />
+              </div>
+              <div className="space-y-2">
+                <Label>Tags (comma-separated)</Label>
+                <Textarea placeholder="tag1, tag2, tag3, ..." value={seoTags} onChange={e => setSeoTags(e.target.value)} rows={2} />
+              </div>
+              <div className="space-y-2">
+                <Label>Thumbnail URL</Label>
+                <Input placeholder="https://..." value={seoThumbUrl} onChange={e => setSeoThumbUrl(e.target.value)} />
+              </div>
+              <Button onClick={runSeoChecklist} disabled={loading} className="w-full bg-red-600 hover:bg-red-700">
+                {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckSquare className="h-4 w-4 mr-2" />}
+                Run SEO Check
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>Results</CardTitle>
+                {seoScore !== null && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Score:</span>
+                    <span className={`text-2xl font-bold ${seoScore >= 80 ? 'text-green-500' : seoScore >= 60 ? 'text-yellow-500' : 'text-red-500'}`}>
+                      {seoScore}%
+                    </span>
+                  </div>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              {seoItems.length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">Run an SEO check to see results here</p>
+              ) : (
+                <div className="space-y-2">
+                  {seoItems.map((item, i) => (
+                    <div key={i} className={`flex items-start gap-3 p-3 rounded-lg border ${item.passed ? 'border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950' : 'border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950'}`}>
+                      <div className="mt-0.5">
+                        {item.passed ? (
+                          <Check className="h-4 w-4 text-green-600 dark:text-green-400" />
+                        ) : (
+                          <X className="h-4 w-4 text-red-600 dark:text-red-400" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">{item.check}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{item.tip}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </CardContent>
           </Card>
