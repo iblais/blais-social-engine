@@ -363,8 +363,8 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Per-account cards with charts */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {/* Per-account analytics cards with SVG charts */}
+          <div className="grid gap-6 sm:grid-cols-1 lg:grid-cols-2">
             {latestMetrics.map((m) => {
               const color = PLATFORM_COLORS[m.platform || ''] || '#6B7280';
               const accountHistory = growthMetrics
@@ -378,70 +378,99 @@ export default function DashboardPage() {
                 ? ((followerGrowth / oldest.followers) * 100).toFixed(1)
                 : '0.0';
 
+              // Build SVG line chart points
+              const chartPoints = accountHistory.length > 1 ? accountHistory.slice(-30) : [m];
+              const chartMax = Math.max(...chartPoints.map(p => p.followers || 0));
+              const chartMin = Math.min(...chartPoints.map(p => p.followers || 0));
+              const chartRange = chartMax - chartMin || 1;
+              const svgW = 400;
+              const svgH = 120;
+              const padding = 4;
+
+              const points = chartPoints.map((p, i) => {
+                const x = padding + (i / Math.max(chartPoints.length - 1, 1)) * (svgW - padding * 2);
+                const y = svgH - padding - ((p.followers - chartMin) / chartRange) * (svgH - padding * 2);
+                return { x, y, value: p.followers, date: p.collected_at };
+              });
+
+              const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+              const areaPath = `${linePath} L ${points[points.length - 1]?.x || 0} ${svgH} L ${points[0]?.x || 0} ${svgH} Z`;
+
+              const formatNum = (n: number) => {
+                if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+                if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+                return n.toLocaleString();
+              };
+
               return (
-                <Card key={m.account_id}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div
-                        className="w-3 h-3 rounded-full"
-                        style={{ backgroundColor: color }}
-                      />
-                      <span className="text-sm font-medium capitalize">{m.platform}</span>
-                      <span className="text-xs text-muted-foreground">@{m.username}</span>
+                <Card key={m.account_id} className="overflow-hidden">
+                  <CardContent className="p-0">
+                    {/* Header */}
+                    <div className="p-5 pb-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <div className="w-4 h-4 rounded-full" style={{ backgroundColor: color }} />
+                          <span className="text-base font-semibold capitalize">{m.platform}</span>
+                          <span className="text-sm text-muted-foreground">@{m.username}</span>
+                        </div>
+                        {followerGrowth !== 0 && (
+                          <span className={`text-sm font-semibold px-2 py-0.5 rounded-full ${
+                            followerGrowth > 0 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                          }`}>
+                            {followerGrowth > 0 ? '+' : ''}{formatNum(followerGrowth)} ({growthPct}%)
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-3xl font-bold">{formatNum(m.followers)}</p>
+                      <p className="text-sm text-muted-foreground">followers</p>
                     </div>
 
-                    {/* Follower chart */}
-                    <div className="mb-3">
-                      <div className="flex items-baseline gap-2">
-                        <p className="text-2xl font-bold">{m.followers?.toLocaleString()}</p>
-                        <p className="text-xs text-muted-foreground">followers</p>
-                      </div>
-                      {followerGrowth !== 0 && (
-                        <p className={`text-xs font-medium ${followerGrowth > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {followerGrowth > 0 ? '+' : ''}{followerGrowth.toLocaleString()} ({growthPct}%)
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Follower trend chart */}
-                    <div className="mb-3">
-                      <div className="flex items-end gap-px h-16 bg-muted/20 rounded p-1">
-                        {(accountHistory.length > 1 ? accountHistory.slice(-30) : [m]).map((point, i, arr) => {
-                          const max = Math.max(...arr.map((p) => p.followers || 0));
-                          const min = Math.min(...arr.map((p) => p.followers || 0));
-                          const range = max - min || 1;
-                          const height = ((point.followers - min) / range) * 100;
-                          return (
-                            <div
-                              key={i}
-                              className="flex-1 rounded-t-sm transition-all"
-                              style={{
-                                height: `${Math.max(height, 5)}%`,
-                                backgroundColor: color,
-                                opacity: arr.length === 1 ? 0.8 : 0.3 + (i / arr.length) * 0.7,
-                              }}
-                              title={`${point.followers?.toLocaleString()} — ${new Date(point.collected_at).toLocaleDateString()}`}
-                            />
-                          );
-                        })}
+                    {/* SVG Line Chart */}
+                    <div className="px-2 pb-1">
+                      <svg viewBox={`0 0 ${svgW} ${svgH}`} className="w-full h-32" preserveAspectRatio="none">
+                        {/* Grid lines */}
+                        {[0.25, 0.5, 0.75].map(pct => (
+                          <line key={pct} x1={padding} y1={svgH - padding - pct * (svgH - padding * 2)} x2={svgW - padding} y2={svgH - padding - pct * (svgH - padding * 2)} stroke="currentColor" strokeOpacity={0.06} strokeWidth={1} />
+                        ))}
+                        {/* Area fill */}
+                        <path d={areaPath} fill={color} fillOpacity={0.1} />
+                        {/* Line */}
+                        <path d={linePath} fill="none" stroke={color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+                        {/* Dots on data points */}
+                        {points.length <= 14 && points.map((p, i) => (
+                          <circle key={i} cx={p.x} cy={p.y} r={3} fill={color} />
+                        ))}
+                        {/* Latest point highlight */}
+                        {points.length > 0 && (
+                          <circle cx={points[points.length - 1].x} cy={points[points.length - 1].y} r={4} fill={color} stroke="white" strokeWidth={2} />
+                        )}
+                      </svg>
+                      {/* Y-axis labels */}
+                      <div className="flex justify-between text-[10px] text-muted-foreground px-1 -mt-1">
+                        <span>{formatNum(chartMin)}</span>
+                        <span>{formatNum(chartMax)}</span>
                       </div>
                     </div>
 
-                    {/* Stats grid */}
-                    <div className="grid grid-cols-3 gap-2 text-center pt-2 border-t">
-                      <div>
-                        <p className="text-[10px] text-muted-foreground">Following</p>
-                        <p className="text-sm font-semibold">{m.following?.toLocaleString() || '—'}</p>
+                    {/* Stats row */}
+                    <div className="grid grid-cols-4 gap-1 border-t p-3">
+                      <div className="text-center">
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Following</p>
+                        <p className="text-sm font-bold">{formatNum(m.following || 0)}</p>
                       </div>
-                      <div>
-                        <p className="text-[10px] text-muted-foreground">Posts</p>
-                        <p className="text-sm font-semibold">{m.posts_count?.toLocaleString() || '—'}</p>
+                      <div className="text-center">
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Posts</p>
+                        <p className="text-sm font-bold">{formatNum(m.posts_count || 0)}</p>
                       </div>
-                      <div>
-                        <p className="text-[10px] text-muted-foreground">Engagement</p>
-                        <p className="text-sm font-semibold">
+                      <div className="text-center">
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Engagement</p>
+                        <p className="text-sm font-bold">
                           {m.engagement_rate != null && m.engagement_rate > 0 ? `${m.engagement_rate}%` : '—'}
                         </p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Data Points</p>
+                        <p className="text-sm font-bold">{accountHistory.length}</p>
                       </div>
                     </div>
                   </CardContent>
