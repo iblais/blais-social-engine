@@ -397,3 +397,12 @@ export interface YouTubeKeyword {
   niche: string | null;
   created_at: string;
 }
+
+export interface CannedResponse {
+  id: string;
+  user_id: string;
+  label: string;
+  text: string;
+  category: string;
+  created_at: string;
+}

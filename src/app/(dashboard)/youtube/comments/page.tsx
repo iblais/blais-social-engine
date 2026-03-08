@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo, useCallback } from 'react';
+import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,6 +17,7 @@ import {
 } from '@/components/ui/select';
 import { toast } from 'sonner';
 import {
+  ArrowLeft,
   Loader2,
   MessageCircle,
   ThumbsUp,
@@ -177,6 +179,9 @@ export default function YouTubeCommentsPage() {
 
   return (
     <div className="space-y-6 p-6">
+      <Link href="/youtube" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-2">
+        <ArrowLeft className="h-4 w-4" /> Back to YouTube Studio
+      </Link>
       <div>
         <h1 className="text-3xl font-bold flex items-center gap-2">
           <MessageCircle className="h-8 w-8 text-red-500" />

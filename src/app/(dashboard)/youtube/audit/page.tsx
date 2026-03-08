@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, Fragment } from 'react';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,6 +16,7 @@ import {
 import { toast } from 'sonner';
 import { useBrandAccounts } from '@/lib/hooks/use-brand-accounts';
 import {
+  ArrowLeft,
   Loader2,
   Youtube,
   TrendingUp,
@@ -171,6 +173,9 @@ export default function YouTubeAuditPage() {
 
   return (
     <div className="space-y-6 p-4 md:p-6">
+      <Link href="/youtube" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-2">
+        <ArrowLeft className="h-4 w-4" /> Back to YouTube Studio
+      </Link>
       <div className="flex items-center gap-3">
         <Youtube className="h-8 w-8 text-red-500" />
         <div>
