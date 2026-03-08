@@ -363,30 +363,36 @@ export async function GET(req: NextRequest) {
           break;
         }
         case 'facebook': {
-          const fbMediaUrls = media.length > 1
+          const isVideo = post.media_type === 'video' ||
+            primaryMedia?.media_type === 'video';
+          const fbMediaUrls = !isVideo && media.length > 1
             ? media.map((m: { media_url: string }) => m.media_url)
             : undefined;
           platformPostId = await publishFacebookPost({
             pageId: account.platform_user_id,
             accessToken: freshToken,
             caption: post.caption,
-            imageUrl: primaryMedia?.media_url,
+            videoUrl: isVideo ? primaryMedia?.media_url : undefined,
+            imageUrl: !isVideo ? primaryMedia?.media_url : undefined,
             imageUrls: fbMediaUrls,
           });
           break;
         }
         case 'bluesky': {
-          const bskyMediaUrls = media.length > 1
-            ? media.slice(0, 4).map((m: { media_url: string }) => m.media_url)
+          // Bluesky only supports images — filter out video media
+          const bskyImageMedia = media.filter((m: { media_type: string }) => m.media_type !== 'video');
+          const bskyMediaUrls = bskyImageMedia.length > 1
+            ? bskyImageMedia.slice(0, 4).map((m: { media_url: string }) => m.media_url)
             : undefined;
+          const bskyPrimaryImage = bskyImageMedia[0];
 
           let bskyCaption = post.caption;
 
-          if (media.length > 4) {
+          if (bskyImageMedia.length > 4) {
             try {
               const apiKey = process.env.GEMINI_API_KEY;
               if (apiKey) {
-                const extraUrls = media.slice(4).map((m: { media_url: string }) => m.media_url);
+                const extraUrls = bskyImageMedia.slice(4).map((m: { media_url: string }) => m.media_url);
                 const extracted = await geminiVision(
                   'Extract all visible text from these images. Return ONLY the text content, separated by newlines. No commentary.',
                   extraUrls,
@@ -405,7 +411,7 @@ export async function GET(req: NextRequest) {
             handle: account.username,
             appPassword: freshToken,
             caption: bskyCaption,
-            imageUrl: primaryMedia?.media_url,
+            imageUrl: bskyPrimaryImage?.media_url,
             imageUrls: bskyMediaUrls,
           });
           break;

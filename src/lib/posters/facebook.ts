@@ -7,6 +7,7 @@ interface FacebookPostPayload {
   caption: string;
   imageUrl?: string;
   imageUrls?: string[];  // multi-image carousel
+  videoUrl?: string;     // video post (Reels or regular)
   linkUrl?: string;
 }
 
@@ -35,7 +36,7 @@ async function graphPost(
 }
 
 export async function publishFacebookPost(payload: FacebookPostPayload): Promise<string> {
-  const { pageId, accessToken, caption, imageUrl, imageUrls, linkUrl } = payload;
+  const { pageId, accessToken, caption, imageUrl, imageUrls, videoUrl, linkUrl } = payload;
 
   // Multi-image post (carousel-like on Facebook)
   // Facebook doesn't have native "carousel" like IG — use multi-photo post via unpublished photos
@@ -73,6 +74,30 @@ export async function publishFacebookPost(payload: FacebookPostPayload): Promise
       const err = await res.json().catch(() => ({}));
       throw new Error(
         `Facebook multi-photo error ${res.status}: ${(err as Record<string, Record<string, string>>)?.error?.message || res.statusText}`
+      );
+    }
+
+    const result = await res.json();
+    return (result as Record<string, string>).id;
+  }
+
+  // Video post (Reels or regular video)
+  if (videoUrl) {
+    const res = await fetch(`${GRAPH_BASE}/${pageId}/videos`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: new URLSearchParams({
+        file_url: videoUrl,
+        description: caption,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(
+        `Facebook video error ${res.status}: ${(err as Record<string, Record<string, string>>)?.error?.message || res.statusText}`
       );
     }
 

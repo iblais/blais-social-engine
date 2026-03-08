@@ -229,10 +229,10 @@ export default function ComposePage() {
       if (!user) { toast.error('Not authenticated'); setLoading(false); return; }
 
       const totalMedia = existingMedia.filter((m) => !removedMediaIds.includes(m.id)).length + mediaFiles.length;
-      // "now" = schedule 10 seconds from now so the cron picks it up immediately
+      // "now" = schedule in the past so the cron picks it up immediately
       const dbStatus = status === 'now' ? 'scheduled' : status;
       const scheduledIso = status === 'now'
-        ? new Date(Date.now() + 10_000).toISOString()
+        ? new Date(Date.now() - 60_000).toISOString()
         : status === 'scheduled' ? new Date(scheduledAt).toISOString() : null;
 
       // Detect media type based on content and platform
@@ -370,7 +370,10 @@ export default function ComposePage() {
       const ext = file.name.split('.').pop();
       const storagePath = `shared/${userId}/${timestamp}/${i}.${ext}`;
       const { error: uploadError } = await supabase.storage.from('media').upload(storagePath, file);
-      if (uploadError) { console.error('Upload error:', uploadError.message); continue; }
+      if (uploadError) {
+        toast.error(`Upload failed: ${uploadError.message}`);
+        throw new Error(`Upload failed for ${file.name}: ${uploadError.message}`);
+      }
       const { data: { publicUrl } } = supabase.storage.from('media').getPublicUrl(storagePath);
       uploaded.push({
         url: publicUrl,
