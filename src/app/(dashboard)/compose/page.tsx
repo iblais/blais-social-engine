@@ -244,6 +244,10 @@ export default function ComposePage() {
         return 'image';
       }
 
+      // Upload media files ONCE (shared across all posts)
+      const uploadedMedia = mediaFiles.length > 0 ? await uploadMediaOnce(user.id) : [];
+      setUploadProgress('Saving posts...');
+
       if (editId) {
         // Update the original post with the first enabled account
         const originalAccId = enabled[0];
@@ -272,9 +276,9 @@ export default function ComposePage() {
           await supabase.from('post_media').delete().eq('id', mediaId);
         }
 
-        // Upload new files for the original post
+        // Link uploaded media to the original post
         const existingCount = existingMedia.filter((m) => !removedMediaIds.includes(m.id)).length;
-        await uploadMedia(editId, existingCount);
+        await linkMediaToPost(editId, uploadedMedia, existingCount);
 
         // Create new posts for any additionally enabled platforms
         const additionalAccIds = enabled.slice(1);
@@ -299,7 +303,7 @@ export default function ComposePage() {
             continue;
           }
 
-          await uploadMedia(newPost.id, 0);
+          await linkMediaToPost(newPost.id, uploadedMedia, 0);
         }
 
         const totalPlatforms = 1 + additionalAccIds.length;
@@ -330,7 +334,7 @@ export default function ComposePage() {
             continue;
           }
 
-          await uploadMedia(post.id, 0);
+          await linkMediaToPost(post.id, uploadedMedia, 0);
           created++;
         }
 
@@ -355,23 +359,39 @@ export default function ComposePage() {
     }
   }
 
-  async function uploadMedia(postId: string, startIndex: number) {
+  // Upload files once to shared storage, return metadata for linking to posts
+  async function uploadMediaOnce(userId: string): Promise<{ url: string; path: string; type: string; size: number }[]> {
+    const uploaded: { url: string; path: string; type: string; size: number }[] = [];
+    const timestamp = Date.now();
     for (let i = 0; i < mediaFiles.length; i++) {
       const file = mediaFiles[i];
       const sizeMB = (file.size / 1_048_576).toFixed(1);
       setUploadProgress(`Uploading ${file.name} (${sizeMB} MB)... ${i + 1}/${mediaFiles.length}`);
       const ext = file.name.split('.').pop();
-      const storagePath = `posts/${postId}/${startIndex + i}.${ext}`;
+      const storagePath = `shared/${userId}/${timestamp}/${i}.${ext}`;
       const { error: uploadError } = await supabase.storage.from('media').upload(storagePath, file);
       if (uploadError) { console.error('Upload error:', uploadError.message); continue; }
       const { data: { publicUrl } } = supabase.storage.from('media').getPublicUrl(storagePath);
+      uploaded.push({
+        url: publicUrl,
+        path: storagePath,
+        type: file.type.startsWith('video') ? 'video' : 'image',
+        size: file.size,
+      });
+    }
+    return uploaded;
+  }
+
+  // Link already-uploaded media to a post
+  async function linkMediaToPost(postId: string, media: { url: string; path: string; type: string; size: number }[], startIndex: number) {
+    for (let i = 0; i < media.length; i++) {
       await supabase.from('post_media').insert({
         post_id: postId,
-        media_url: publicUrl,
-        storage_path: storagePath,
-        media_type: file.type.startsWith('video') ? 'video' : 'image',
+        media_url: media[i].url,
+        storage_path: media[i].path,
+        media_type: media[i].type,
         sort_order: startIndex + i,
-        file_size: file.size,
+        file_size: media[i].size,
       });
     }
   }
