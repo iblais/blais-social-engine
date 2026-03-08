@@ -110,7 +110,7 @@ export async function GET(req: NextRequest) {
         const ytKey = process.env.YOUTUBE_API_KEY;
         if (ytKey) {
           const searchRes = await fetch(
-            `https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&forHandle=${comp.username}&key=${ytKey}`
+            `https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet,contentDetails&forHandle=${comp.username}&key=${ytKey}`
           );
           if (searchRes.ok) {
             const ytData = await searchRes.json();
@@ -130,6 +130,43 @@ export async function GET(req: NextRequest) {
                 followers: parseInt(channel.statistics?.subscriberCount || '0'),
                 post_count: parseInt(channel.statistics?.videoCount || '0'),
               });
+
+              // Fetch last 10 videos
+              const uploadsId = channel.contentDetails?.relatedPlaylists?.uploads;
+              if (uploadsId) {
+                try {
+                  const plRes = await fetch(
+                    `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${uploadsId}&maxResults=10&key=${ytKey}`
+                  );
+                  if (plRes.ok) {
+                    const plData = await plRes.json();
+                    const vidIds = plData.items?.map((i: { contentDetails: { videoId: string } }) => i.contentDetails.videoId).join(',');
+                    if (vidIds) {
+                      const vidsRes = await fetch(
+                        `https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet,contentDetails&id=${vidIds}&key=${ytKey}`
+                      );
+                      if (vidsRes.ok) {
+                        const vidsData = await vidsRes.json();
+                        for (const v of vidsData.items || []) {
+                          await supabase.from('competitor_videos').upsert({
+                            competitor_id: comp.id,
+                            video_id: v.id,
+                            title: v.snippet?.title,
+                            published_at: v.snippet?.publishedAt,
+                            views: parseInt(v.statistics?.viewCount || '0'),
+                            likes: parseInt(v.statistics?.likeCount || '0'),
+                            comments: parseInt(v.statistics?.commentCount || '0'),
+                            duration: v.contentDetails?.duration,
+                            tags: v.snippet?.tags || [],
+                            thumbnail_url: v.snippet?.thumbnails?.medium?.url,
+                          }, { onConflict: 'competitor_id,video_id' });
+                        }
+                      }
+                    }
+                  }
+                } catch { /* video fetch optional */ }
+              }
+
               updated++;
             }
           }

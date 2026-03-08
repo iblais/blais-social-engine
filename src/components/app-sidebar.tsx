@@ -28,6 +28,7 @@ import {
   Rss,
   Trophy,
   RotateCcw,
+  Youtube,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -66,6 +67,7 @@ const aiNav = [
   { title: 'AI Captions', href: '/ai/captions', icon: Sparkles },
   { title: 'AI Images', href: '/ai/images', icon: ImagePlus },
   { title: 'Content Ideas', href: '/ai/ideas', icon: Lightbulb },
+  { title: 'YouTube Studio', href: '/youtube', icon: Youtube },
 ];
 
 const toolsNav = [
