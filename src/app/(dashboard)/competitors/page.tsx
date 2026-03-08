@@ -513,14 +513,14 @@ export default function CompetitorsPage() {
         <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-4 flex gap-3">
           <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
           <div className="text-sm">
-            <p className="font-medium text-amber-800 dark:text-amber-200">Competitor data requires setup</p>
+            <p className="font-medium text-amber-800 dark:text-amber-200">Competitor tracking requires Instagram permissions</p>
             <p className="text-amber-700 dark:text-amber-300 mt-1">
-              To track Instagram competitors, link your Facebook Page to your Instagram account in{' '}
-              <a href="https://business.facebook.com/settings" target="_blank" rel="noopener noreferrer" className="underline">
-                Meta Business Suite
+              The Facebook app needs <strong>instagram_basic</strong> and <strong>instagram_manage_insights</strong> permissions
+              to look up competitor data. Re-authorize the app in{' '}
+              <a href="https://developers.facebook.com/apps/1656097598425089/use_cases/" target="_blank" rel="noopener noreferrer" className="underline">
+                Meta Developer Console
               </a>
-              . This enables the Business Discovery API to fetch competitor follower data.
-              YouTube competitors work automatically.
+              {' '}with Instagram permissions enabled. YouTube competitors work automatically.
             </p>
           </div>
         </div>
