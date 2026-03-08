@@ -171,6 +171,53 @@ export async function GET(req: NextRequest) {
           });
           accountsUpdated++;
         }
+      } else if (acc.platform === 'youtube') {
+        // YouTube Data API — channel statistics
+        const res = await fetch(
+          `https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&id=${acc.platform_user_id}&access_token=${acc.access_token}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          const channel = data.items?.[0];
+          if (channel) {
+            const stats = channel.statistics || {};
+            await supabase.from('account_metrics').insert({
+              account_id: acc.id,
+              followers: parseInt(stats.subscriberCount || '0'),
+              following: 0,
+              posts_count: parseInt(stats.videoCount || '0'),
+              engagement_rate: 0,
+            });
+            accountsUpdated++;
+          }
+        }
+      } else if (acc.platform === 'bluesky') {
+        // AT Protocol — create session first, then fetch profile
+        try {
+          const sessionRes = await fetch('https://bsky.social/xrpc/com.atproto.server.createSession', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ identifier: acc.platform_user_id, password: acc.access_token }),
+          });
+          if (sessionRes.ok) {
+            const session = await sessionRes.json();
+            const profileRes = await fetch(
+              `https://bsky.social/xrpc/app.bsky.actor.getProfile?actor=${session.did}`,
+              { headers: { Authorization: `Bearer ${session.accessJwt}` } }
+            );
+            if (profileRes.ok) {
+              const profile = await profileRes.json();
+              await supabase.from('account_metrics').insert({
+                account_id: acc.id,
+                followers: profile.followersCount || 0,
+                following: profile.followsCount || 0,
+                posts_count: profile.postsCount || 0,
+                engagement_rate: 0,
+              });
+              accountsUpdated++;
+            }
+          }
+        } catch { /* Bluesky session creation may fail */ }
       }
     } catch {
       // Don't block on account metric failures
