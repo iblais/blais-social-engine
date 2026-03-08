@@ -126,12 +126,10 @@ export default function ComposePage() {
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files || []);
+    if (!files.length) return;
     setMediaFiles((prev) => [...prev, ...files]);
-    files.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = (ev) => setMediaPreviews((prev) => [...prev, ev.target?.result as string]);
-      reader.readAsDataURL(file);
-    });
+    const urls = files.map((f) => URL.createObjectURL(f));
+    setMediaPreviews((prev) => [...prev, ...urls]);
   }
 
   function removeMedia(index: number) {
@@ -142,17 +140,45 @@ export default function ComposePage() {
       const fileIndex = index - liveExisting.length;
       setMediaFiles((prev) => prev.filter((_, i) => i !== fileIndex));
     }
+    // Revoke blob URL to free memory
+    const url = mediaPreviews[index];
+    if (url?.startsWith('blob:')) URL.revokeObjectURL(url);
     setMediaPreviews((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  // Check if a preview URL is a video (blob from video file, or existing video media)
+  function isVideoPreview(index: number): boolean {
+    const liveExisting = existingMedia.filter((m) => !removedMediaIds.includes(m.id));
+    if (index < liveExisting.length) return liveExisting[index].media_type === 'video';
+    const fileIndex = index - liveExisting.length;
+    return mediaFiles[fileIndex]?.type?.startsWith('video') || false;
   }
 
   // AI caption generation — analyzes uploaded images with Gemini vision
   async function generateAICaption() {
     setAiCaptionLoading(true);
     try {
-      // Collect image data URLs from previews (both new files and existing media URLs)
+      // Collect image URLs for AI vision — convert blob URLs to data URLs, pass public URLs as-is
       const imageData: string[] = [];
-      for (const preview of mediaPreviews) {
-        imageData.push(preview); // data URLs or public URLs
+      const liveExisting = existingMedia.filter((m) => !removedMediaIds.includes(m.id));
+      for (let i = 0; i < mediaPreviews.length; i++) {
+        const src = mediaPreviews[i];
+        if (src.startsWith('blob:')) {
+          // Convert blob to data URL for the API (only for images, skip videos)
+          if (!isVideoPreview(i)) {
+            const fileIndex = i - liveExisting.length;
+            if (fileIndex >= 0 && mediaFiles[fileIndex]) {
+              const dataUrl = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (ev) => resolve(ev.target?.result as string);
+                reader.readAsDataURL(mediaFiles[fileIndex]);
+              });
+              imageData.push(dataUrl);
+            }
+          }
+        } else {
+          imageData.push(src); // public URLs from existing media
+        }
       }
 
       const res = await fetch('/api/ai/caption', {
@@ -468,7 +494,11 @@ export default function ComposePage() {
                 <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
                   {mediaPreviews.map((src, i) => (
                     <div key={i} className="relative aspect-square rounded-lg overflow-hidden border">
-                      <img src={src} alt="" className="object-cover w-full h-full" />
+                      {isVideoPreview(i) ? (
+                        <video src={src} className="object-cover w-full h-full" muted playsInline />
+                      ) : (
+                        <img src={src} alt="" className="object-cover w-full h-full" />
+                      )}
                       <button
                         onClick={() => removeMedia(i)}
                         className="absolute top-1 right-1 bg-black/60 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-black/80"
@@ -554,7 +584,11 @@ export default function ComposePage() {
                 {/* Media preview */}
                 {mediaPreviews.length > 0 && (
                   <div className="mb-3 rounded-lg overflow-hidden border aspect-square max-h-[200px]">
-                    <img src={mediaPreviews[0]} alt="" className="w-full h-full object-cover" />
+                    {isVideoPreview(0) ? (
+                      <video src={mediaPreviews[0]} className="w-full h-full object-cover" muted playsInline />
+                    ) : (
+                      <img src={mediaPreviews[0]} alt="" className="w-full h-full object-cover" />
+                    )}
                   </div>
                 )}
 
