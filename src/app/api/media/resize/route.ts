@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import sharp from 'sharp';
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 const PRESETS: Record<string, { width: number; height: number; label: string }> = {
   instagram_post: { width: 1080, height: 1080, label: 'Instagram Post (1:1)' },

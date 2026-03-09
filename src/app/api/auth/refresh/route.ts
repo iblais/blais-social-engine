@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { refreshAccountToken, refreshFacebookPageToken, tokenNeedsRefresh } from '@/lib/meta/token-refresh';
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 /**
  * POST /api/auth/refresh — Manually refresh a token for an account.

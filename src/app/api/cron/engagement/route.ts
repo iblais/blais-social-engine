@@ -4,7 +4,7 @@ import { fetchRecentPosts, fetchComments, replyToComment, sendInstagramDM } from
 import { findMatchingRule, renderTemplate, isCooldownActive } from '@/lib/engagement/rules-engine';
 import type { DmRule } from '@/types/database';
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get('authorization');

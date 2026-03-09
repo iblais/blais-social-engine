@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 /**
  * Fetch RSS feeds and save new items to curated_content.

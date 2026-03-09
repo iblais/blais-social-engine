@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 const FB_GRAPH = 'https://graph.facebook.com/v22.0';
 const IG_GRAPH = 'https://graph.instagram.com/v22.0';

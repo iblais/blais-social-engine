@@ -8,7 +8,7 @@ import { publishYouTubePost } from '@/lib/posters/youtube';
 import { refreshAccountToken, refreshFacebookPageToken, tokenNeedsRefresh } from '@/lib/meta/token-refresh';
 import { geminiVision } from '@/lib/ai/gemini';
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 /* ---------- helpers ---------- */
 
