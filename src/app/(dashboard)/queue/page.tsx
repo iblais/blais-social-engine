@@ -68,11 +68,13 @@ export default function QueuePage() {
   const router = useRouter();
 
   const loadPosts = useCallback(async () => {
+    if (activeBrandId && !accountIds.length) return; // wait for accounts to load
+
     let query = supabase
       .from('posts')
       .select('*, social_accounts(username, platform)')
       .order('scheduled_at', { ascending: true, nullsFirst: false })
-      .limit(200);
+      .limit(10000);
 
     if (activeTab !== 'all') {
       query = query.eq('status', activeTab);

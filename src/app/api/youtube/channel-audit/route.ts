@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { geminiGenerate } from '@/lib/ai/gemini';
-
-const YT_API = 'https://www.googleapis.com/youtube/v3';
+import { ytApiFetch, YT_API } from '@/lib/youtube/api';
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
@@ -27,52 +26,53 @@ export async function GET(req: NextRequest) {
   const geminiKey = setting?.value || process.env.GEMINI_API_KEY;
 
   try {
-    // Fetch channel details
-    const channelRes = await fetch(
-      `${YT_API}/channels?part=statistics,snippet,brandingSettings,contentDetails&mine=true`,
-      { headers: { Authorization: `Bearer ${account.access_token}` } }
+    // Fetch channel details (with fallback for Brand Account tokens)
+    const channelId = (account.meta as Record<string, string>)?.channel_id || account.platform_user_id;
+    const channelResult = await ytApiFetch(
+      `${YT_API}/channels?part=statistics,snippet,brandingSettings,contentDetails&id=${channelId}`,
+      account.access_token, supabase, user.id
     );
-    if (!channelRes.ok) throw new Error(`YouTube API error: ${channelRes.status}`);
-    const channelData = await channelRes.json();
-    const channel = channelData.items?.[0];
+    if (channelResult.error) return NextResponse.json({ error: channelResult.error }, { status: channelResult.status });
+    const channel = (channelResult.data?.items as Array<Record<string, unknown>> | undefined)?.[0];
     if (!channel) throw new Error('Channel not found');
 
     // Fetch recent videos via uploads playlist
-    const uploadsPlaylistId = channel.contentDetails?.relatedPlaylists?.uploads;
+    const uploadsPlaylistId = ((channel?.contentDetails as Record<string, unknown>)?.relatedPlaylists as Record<string, string>)?.uploads;
     let videos: Array<Record<string, unknown>> = [];
 
     if (uploadsPlaylistId) {
-      const playlistRes = await fetch(
+      const playlistResult = await ytApiFetch(
         `${YT_API}/playlistItems?part=contentDetails&playlistId=${uploadsPlaylistId}&maxResults=30`,
-        { headers: { Authorization: `Bearer ${account.access_token}` } }
+        account.access_token, supabase, user.id
       );
-      if (playlistRes.ok) {
-        const playlistData = await playlistRes.json();
-        const videoIds = playlistData.items?.map((item: { contentDetails: { videoId: string } }) => item.contentDetails.videoId).join(',');
+      if (!playlistResult.error && playlistResult.data) {
+        const videoIds = (playlistResult.data.items as Array<{ contentDetails: { videoId: string } }> | undefined)?.map((item) => item.contentDetails.videoId).join(',');
 
         if (videoIds) {
-          const videosRes = await fetch(
+          const videosResult = await ytApiFetch(
             `${YT_API}/videos?part=statistics,snippet,contentDetails&id=${videoIds}`,
-            { headers: { Authorization: `Bearer ${account.access_token}` } }
+            account.access_token, supabase, user.id
           );
-          if (videosRes.ok) {
-            const videosData = await videosRes.json();
-            videos = videosData.items || [];
+          if (!videosResult.error && videosResult.data) {
+            videos = (videosResult.data.items as Array<Record<string, unknown>>) || [];
           }
         }
       }
     }
 
     // Prepare audit data
+    const snippet = channel?.snippet as Record<string, unknown> | undefined;
+    const statistics = channel?.statistics as Record<string, unknown> | undefined;
+    const thumbnails = snippet?.thumbnails as Record<string, { url: string }> | undefined;
     const auditData = {
       channel: {
-        title: channel.snippet?.title,
-        description: channel.snippet?.description?.slice(0, 500),
-        subscriberCount: Number(channel.statistics?.subscriberCount || 0),
-        videoCount: Number(channel.statistics?.videoCount || 0),
-        viewCount: Number(channel.statistics?.viewCount || 0),
-        customUrl: channel.snippet?.customUrl,
-        thumbnail: channel.snippet?.thumbnails?.default?.url,
+        title: snippet?.title,
+        description: (snippet?.description as string)?.slice(0, 500),
+        subscriberCount: Number(statistics?.subscriberCount || 0),
+        videoCount: Number(statistics?.videoCount || 0),
+        viewCount: Number(statistics?.viewCount || 0),
+        customUrl: snippet?.customUrl,
+        thumbnail: thumbnails?.default?.url,
       },
       videos: videos.map((v: Record<string, unknown>) => {
         const snippet = v.snippet as Record<string, unknown> | undefined;

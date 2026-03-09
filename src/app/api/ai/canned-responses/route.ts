@@ -10,7 +10,8 @@ export async function GET() {
     const { data: responses, error } = await supabase
       .from('canned_responses')
       .select('id, label, text, category')
-      .order('created_at', { ascending: false });
+      .order('category', { ascending: true })
+      .order('label', { ascending: true });
 
     if (error) throw error;
     return NextResponse.json({ responses: responses || [] });

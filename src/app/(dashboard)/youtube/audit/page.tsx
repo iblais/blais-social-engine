@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo, Fragment } from 'react';
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -89,7 +88,7 @@ function ScoreRing({ score, label, size = 'md' }: { score: number; label: string
         </svg>
         <span className={`absolute inset-0 flex items-center justify-center ${fontSize} font-bold`} style={{ color }}>{score}</span>
       </div>
-      <span className="text-xs text-muted-foreground capitalize">{label.replace('_', ' ')}</span>
+      <span className="text-xs text-muted-foreground capitalize">{label.replaceAll('_', ' ')}</span>
     </div>
   );
 }
@@ -138,7 +137,6 @@ function HeatMap({ times }: { times: Array<{ day: string; hour: number; performa
 
 export default function YouTubeAuditPage() {
   const { accounts } = useBrandAccounts();
-  const supabase = useMemo(() => createClient(), []);
   const [selectedAccount, setSelectedAccount] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AuditResult | null>(null);

@@ -91,6 +91,7 @@ export interface MediaAsset {
   width: number | null;
   height: number | null;
   folder: string | null;
+  brand_id: string | null;
   created_at: string;
 }
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -33,6 +34,8 @@ import {
   CheckSquare,
   Check,
   X,
+  ExternalLink,
+  Hash,
 } from 'lucide-react';
 
 type Tab = 'titles' | 'descriptions' | 'scripts' | 'tags' | 'thumbnails' | 'ideas' | 'remix' | 'seo';
@@ -63,6 +66,7 @@ function VolumeBadge({ volume }: { volume: string }) {
 }
 
 export default function YouTubeStudioPage() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>('titles');
   const [loading, setLoading] = useState(false);
 
@@ -306,19 +310,19 @@ export default function YouTubeStudioPage() {
         </div>
       </div>
 
-      {/* Quick links to sub-pages */}
+      {/* Quick links to sub-pages and tab shortcuts */}
       <div className="flex flex-wrap gap-2">
         {[
           { href: '/youtube/audit', label: 'Channel Audit' },
-          { href: '/youtube/keywords', label: 'Keyword Research' },
           { href: '/youtube/growth', label: 'Growth Tracking' },
           { href: '/youtube/comments', label: 'Comments' },
-          { href: '/youtube/seo', label: 'SEO Tools' },
         ].map(link => (
           <Link key={link.href} href={link.href}>
             <Button variant="outline" size="sm">{link.label}</Button>
           </Link>
         ))}
+        <Button variant="outline" size="sm" onClick={() => setActiveTab('tags')}>Keyword Research</Button>
+        <Button variant="outline" size="sm" onClick={() => setActiveTab('seo')}>SEO Tools</Button>
       </div>
 
       {/* Tab bar */}
@@ -387,9 +391,14 @@ export default function YouTubeStudioPage() {
                         <p className="font-medium">{t.title}</p>
                         <p className="text-xs text-muted-foreground mt-1">{t.reason}</p>
                       </div>
-                      <Button size="icon" variant="ghost" onClick={() => copyToClipboard(t.title)}>
-                        <Copy className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button size="icon" variant="ghost" onClick={() => copyToClipboard(t.title)} title="Copy">
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => { copyToClipboard(t.title); toast.success('Copied! Go to Compose to use it'); }}>
+                          Use as Title
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -449,7 +458,14 @@ export default function YouTubeStudioPage() {
               {!description ? (
                 <p className="text-muted-foreground text-center py-8">Generate a description to see results here</p>
               ) : (
-                <pre className="whitespace-pre-wrap text-sm font-sans leading-relaxed">{description}</pre>
+                <>
+                  <pre className="whitespace-pre-wrap text-sm font-sans leading-relaxed">{description}</pre>
+                  <div className="mt-4 pt-3 border-t">
+                    <Button size="sm" onClick={() => router.push(`/compose?caption=${encodeURIComponent(description)}`)}>
+                      <ExternalLink className="h-4 w-4 mr-1" /> Use in Compose
+                    </Button>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
@@ -540,9 +556,14 @@ export default function YouTubeStudioPage() {
               <div className="flex items-center justify-between">
                 <CardTitle>Tags ({tags.length})</CardTitle>
                 {tags.length > 0 && (
-                  <Button size="sm" variant="ghost" onClick={() => copyToClipboard(tags.map(t => t.tag).join(', '))}>
-                    <Copy className="h-4 w-4 mr-1" /> Copy All
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="ghost" onClick={() => copyToClipboard(tags.map(t => t.tag).join(', '))}>
+                      <Copy className="h-4 w-4 mr-1" /> Copy All
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => copyToClipboard(tags.map(t => `#${t.tag.replace(/\s+/g, '')}`).join(' '))}>
+                      <Hash className="h-4 w-4 mr-1" /> Copy as Hashtags
+                    </Button>
+                  </div>
                 )}
               </div>
             </CardHeader>

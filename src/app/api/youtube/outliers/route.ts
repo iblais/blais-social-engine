@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-
-const YT_API = 'https://www.googleapis.com/youtube/v3';
+import { ytApiFetch, YT_API } from '@/lib/youtube/api';
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
@@ -23,26 +22,26 @@ export async function GET(req: NextRequest) {
   if (!account.access_token) return NextResponse.json({ error: 'No OAuth token for this account' }, { status: 400 });
 
   try {
-    // Get channel's uploads playlist ID
-    const channelRes = await fetch(
-      `${YT_API}/channels?part=contentDetails&mine=true`,
-      { headers: { Authorization: `Bearer ${account.access_token}` } }
+    // Get channel's uploads playlist ID (with fallback for Brand Account tokens)
+    const channelId = (account.meta as Record<string, string>)?.channel_id || account.platform_user_id;
+    const channelResult = await ytApiFetch(
+      `${YT_API}/channels?part=contentDetails&id=${channelId}`,
+      account.access_token, supabase, user.id
     );
-    if (!channelRes.ok) throw new Error(`YouTube channels API error: ${channelRes.status}`);
-    const channelData = await channelRes.json();
+    if (channelResult.error) return NextResponse.json({ error: channelResult.error }, { status: channelResult.status });
 
-    const uploadsPlaylistId = channelData.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
-    if (!uploadsPlaylistId) throw new Error('Could not find uploads playlist');
+    const uploadsPlaylistId = (channelResult.data?.items as Array<Record<string, unknown>>)?.[0]?.contentDetails as Record<string, unknown> | undefined;
+    const uploads = (uploadsPlaylistId as Record<string, Record<string, string>> | undefined)?.relatedPlaylists?.uploads;
+    if (!uploads) throw new Error('Could not find uploads playlist');
 
     // Fetch last 50 videos from uploads playlist
-    const playlistRes = await fetch(
-      `${YT_API}/playlistItems?part=contentDetails&playlistId=${uploadsPlaylistId}&maxResults=50`,
-      { headers: { Authorization: `Bearer ${account.access_token}` } }
+    const playlistResult = await ytApiFetch(
+      `${YT_API}/playlistItems?part=contentDetails&playlistId=${uploads}&maxResults=50`,
+      account.access_token, supabase, user.id
     );
-    if (!playlistRes.ok) throw new Error(`YouTube playlistItems API error: ${playlistRes.status}`);
-    const playlistData = await playlistRes.json();
+    if (playlistResult.error) throw new Error(`YouTube playlistItems API error: ${playlistResult.status}`);
 
-    const videoIds = (playlistData.items || [])
+    const videoIds = ((playlistResult.data?.items || []) as Array<Record<string, unknown>>)
       .map((item: Record<string, unknown>) => (item.contentDetails as Record<string, unknown>)?.videoId)
       .filter(Boolean)
       .join(',');
@@ -50,14 +49,13 @@ export async function GET(req: NextRequest) {
     if (!videoIds) return NextResponse.json({ averages: { views: 0, likes: 0, comments: 0 }, outliers: [], totalVideos: 0 });
 
     // Fetch video details with statistics
-    const videosRes = await fetch(
+    const videosResult = await ytApiFetch(
       `${YT_API}/videos?part=snippet,statistics&id=${videoIds}`,
-      { headers: { Authorization: `Bearer ${account.access_token}` } }
+      account.access_token, supabase, user.id
     );
-    if (!videosRes.ok) throw new Error(`YouTube videos API error: ${videosRes.status}`);
-    const videosData = await videosRes.json();
+    if (videosResult.error) throw new Error(`YouTube videos API error: ${videosResult.status}`);
 
-    const videos = (videosData.items || []).map((v: Record<string, unknown>) => {
+    const videos = ((videosResult.data?.items || []) as Array<Record<string, unknown>>).map((v: Record<string, unknown>) => {
       const snippet = v.snippet as Record<string, unknown>;
       const stats = v.statistics as Record<string, unknown>;
       return {

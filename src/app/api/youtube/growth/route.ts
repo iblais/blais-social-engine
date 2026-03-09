@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { geminiGenerate } from '@/lib/ai/gemini';
-
-const YT_API = 'https://www.googleapis.com/youtube/v3';
+import { ytApiFetch, YT_API } from '@/lib/youtube/api';
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
@@ -30,25 +29,21 @@ export async function GET(req: NextRequest) {
       .order('recorded_at', { ascending: false })
       .limit(90);
 
-    // Fetch current channel stats from YouTube
-    const channelRes = await fetch(
-      `${YT_API}/channels?part=statistics,snippet&mine=true`,
-      { headers: { Authorization: `Bearer ${account.access_token}` } }
+    // Fetch current channel stats from YouTube (with fallback for Brand Account tokens)
+    const channelId = (account.meta as Record<string, string>)?.channel_id || account.platform_user_id;
+    const channelResult = await ytApiFetch(
+      `${YT_API}/channels?part=statistics,snippet&id=${channelId}`,
+      account.access_token, supabase, user.id
     );
-
-    if (!channelRes.ok) {
-      const err = await channelRes.json().catch(() => ({}));
-      throw new Error(`YouTube API error ${channelRes.status}: ${err?.error?.message || channelRes.statusText}`);
-    }
-
-    const channelData = await channelRes.json();
-    const channel = channelData.items?.[0];
+    if (channelResult.error) return NextResponse.json({ error: channelResult.error }, { status: channelResult.status });
+    const channel = (channelResult.data?.items as Array<Record<string, unknown>> | undefined)?.[0];
     if (!channel) throw new Error('Channel not found');
 
+    const stats = channel.statistics as Record<string, unknown> | undefined;
     const current = {
-      subscribers: Number(channel.statistics?.subscriberCount || 0),
-      views: Number(channel.statistics?.viewCount || 0),
-      videos: Number(channel.statistics?.videoCount || 0),
+      subscribers: Number(stats?.subscriberCount || 0),
+      views: Number(stats?.viewCount || 0),
+      videos: Number(stats?.videoCount || 0),
     };
 
     // Build history timeline (newest first from DB)

@@ -29,6 +29,7 @@ import {
   Trophy,
   RotateCcw,
   Youtube,
+  Factory,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -82,6 +83,10 @@ const growthNav = [
   { title: 'SmartLinks', href: '/smartlinks', icon: Link2 },
   { title: 'Curation', href: '/curation', icon: Rss },
   { title: 'A/B Testing', href: '/ab-testing', icon: FlaskConical },
+];
+
+const productionNav = [
+  { title: 'Content Pipeline', href: '/pipeline/workshop', icon: Factory },
 ];
 
 const systemNav = [
@@ -145,6 +150,7 @@ export function AppSidebar() {
         <NavGroup label="AI" items={aiNav} />
         <NavGroup label="Tools" items={toolsNav} />
         <NavGroup label="Growth" items={growthNav} />
+        <NavGroup label="Production" items={productionNav} />
         <NavGroup label="Settings" items={systemNav} />
       </SidebarContent>
       <SidebarFooter className="border-t p-4">

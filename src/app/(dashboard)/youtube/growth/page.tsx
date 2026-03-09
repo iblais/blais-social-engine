@@ -19,8 +19,6 @@ import {
   Users,
   Eye,
   Video,
-  TrendingUp,
-  TrendingDown,
   ArrowUp,
   ArrowDown,
   BarChart3,
@@ -28,18 +26,17 @@ import {
   Youtube,
 } from 'lucide-react';
 import { useBrandAccounts } from '@/lib/hooks/use-brand-accounts';
-import { createClient } from '@/lib/supabase/client';
 
 interface ChannelStats {
   subscribers: number;
-  totalViews: number;
-  videoCount: number;
+  views: number;
+  videos: number;
 }
 
 interface GrowthMetrics {
   subsPerWeek: number;
   viewsPerWeek: number;
-  growthPercent: number;
+  subsGrowthPct: number;
 }
 
 interface DataPoint {
@@ -49,10 +46,9 @@ interface DataPoint {
 }
 
 interface AIPrediction {
-  predictedSubGrowth: number;
-  predictedViewGrowth: number;
-  confidence: string;
-  summary: string;
+  next30DaySubs: number;
+  next30DayViews: number;
+  confidence: number;
 }
 
 function formatNumber(n: number): string {
@@ -116,7 +112,6 @@ function MiniChart({ data, dataKey, color }: { data: DataPoint[]; dataKey: 'subs
 
 export default function YouTubeGrowthPage() {
   const { accounts } = useBrandAccounts();
-  const supabase = useMemo(() => createClient(), []);
   const ytAccounts = useMemo(() => accounts.filter(a => a.platform === 'youtube'), [accounts]);
 
   const [selectedAccount, setSelectedAccount] = useState('');
@@ -134,10 +129,10 @@ export default function YouTubeGrowthPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load growth data');
 
-      setStats(data.stats || null);
+      setStats(data.current || null);
       setGrowth(data.growth || null);
-      setHistory(data.history || []);
-      setPrediction(data.prediction || null);
+      setHistory((data.history || []).reverse());
+      setPrediction(data.prediction?.next30DaySubs ? data.prediction : null);
       toast.success('Growth data loaded');
     } catch (err) {
       toast.error((err as Error).message);
@@ -210,7 +205,7 @@ export default function YouTubeGrowthPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Total Views</p>
-                  <p className="text-3xl font-bold">{formatNumber(stats.totalViews)}</p>
+                  <p className="text-3xl font-bold">{formatNumber(stats.views)}</p>
                 </div>
                 <Eye className="h-10 w-10 text-blue-500 opacity-50" />
               </div>
@@ -221,7 +216,7 @@ export default function YouTubeGrowthPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Videos</p>
-                  <p className="text-3xl font-bold">{formatNumber(stats.videoCount)}</p>
+                  <p className="text-3xl font-bold">{formatNumber(stats.videos)}</p>
                 </div>
                 <Video className="h-10 w-10 text-purple-500 opacity-50" />
               </div>
@@ -255,10 +250,10 @@ export default function YouTubeGrowthPage() {
             <CardContent className="pt-6">
               <p className="text-sm text-muted-foreground">Growth %</p>
               <div className="flex items-center gap-2 mt-1">
-                <p className={`text-2xl font-bold ${growth.growthPercent >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                  {growth.growthPercent >= 0 ? '+' : ''}{growth.growthPercent.toFixed(1)}%
+                <p className={`text-2xl font-bold ${growth.subsGrowthPct >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                  {growth.subsGrowthPct >= 0 ? '+' : ''}{growth.subsGrowthPct.toFixed(1)}%
                 </p>
-                <GrowthArrow value={growth.growthPercent} />
+                <GrowthArrow value={growth.subsGrowthPct} />
               </div>
             </CardContent>
           </Card>
@@ -305,33 +300,32 @@ export default function YouTubeGrowthPage() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <p className="text-sm text-muted-foreground">Predicted Sub Growth</p>
+                <p className="text-sm text-muted-foreground">Predicted Subscribers (30d)</p>
                 <p className="text-xl font-bold text-green-500">
-                  +{formatNumber(prediction.predictedSubGrowth)}
+                  {formatNumber(prediction.next30DaySubs)}
                 </p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Predicted View Growth</p>
+                <p className="text-sm text-muted-foreground">Predicted Views (30d)</p>
                 <p className="text-xl font-bold text-blue-500">
-                  +{formatNumber(prediction.predictedViewGrowth)}
+                  {formatNumber(prediction.next30DayViews)}
                 </p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Confidence</p>
                 <Badge
                   className={
-                    prediction.confidence === 'high'
+                    prediction.confidence >= 70
                       ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                      : prediction.confidence === 'medium'
+                      : prediction.confidence >= 40
                       ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
                       : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
                   }
                 >
-                  {prediction.confidence}
+                  {prediction.confidence}%
                 </Badge>
               </div>
             </div>
-            <p className="text-sm text-muted-foreground">{prediction.summary}</p>
           </CardContent>
         </Card>
       )}

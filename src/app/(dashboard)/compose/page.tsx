@@ -253,7 +253,7 @@ export default function ComposePage() {
         const originalAccId = enabled[0];
         const originalAcc = brandAccounts.find((a) => a.id === originalAccId);
         if (!originalAcc) {
-          toast.error('Select at least one platform');
+          toast.error('Account not found — it may have been disconnected. Reconnect in Settings > Accounts.');
           setLoading(false);
           return;
         }

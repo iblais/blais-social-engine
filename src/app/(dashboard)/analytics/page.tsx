@@ -241,7 +241,19 @@ export default function AnalyticsPage() {
     return { totalLikes, totalComments, totalShares, totalSaves, totalImpressions, totalReach, postsWithMetrics, avgEngagement };
   }, [filtered]);
 
-  // --- Account metrics: latest per account + all history for charts ---
+  // Date range cutoff for account metrics
+  const metricsCutoff = useMemo(() => {
+    if (dateRange === 'all') return null;
+    return subDays(new Date(), parseInt(dateRange));
+  }, [dateRange]);
+
+  // Filter account metrics by date range
+  const dateFilteredMetrics = useMemo(() => {
+    if (!metricsCutoff) return accountMetrics;
+    return accountMetrics.filter(m => isAfter(parseISO(m.collected_at), metricsCutoff));
+  }, [accountMetrics, metricsCutoff]);
+
+  // --- Account metrics: latest per account (always from full data, since latest = current followers) ---
   const latestAccountMetrics = useMemo(() => {
     const map = new Map<string, AccountMetric>();
     accountMetrics.forEach(m => {
@@ -250,10 +262,10 @@ export default function AnalyticsPage() {
     return Array.from(map.values());
   }, [accountMetrics]);
 
-  // Growth data per account
+  // Growth data per account — filtered to date range for charts
   const accountGrowth = useMemo(() => {
     const grouped = new Map<string, AccountMetric[]>();
-    accountMetrics.forEach(m => {
+    dateFilteredMetrics.forEach(m => {
       const arr = grouped.get(m.account_id) || [];
       arr.push(m);
       grouped.set(m.account_id, arr);
@@ -263,25 +275,62 @@ export default function AnalyticsPage() {
       arr.sort((a, b) => new Date(a.collected_at).getTime() - new Date(b.collected_at).getTime());
     });
     return grouped;
-  }, [accountMetrics]);
+  }, [dateFilteredMetrics]);
+
+  // Baseline metrics: the record closest to the start of the date range per account
+  const baselineMetrics = useMemo(() => {
+    const map = new Map<string, AccountMetric>();
+    if (!metricsCutoff) {
+      // "all time" — use the earliest record per account
+      accountMetrics.forEach(m => {
+        const existing = map.get(m.account_id);
+        if (!existing || new Date(m.collected_at).getTime() < new Date(existing.collected_at).getTime()) {
+          map.set(m.account_id, m);
+        }
+      });
+    } else {
+      // Find the record closest to (but not after) the cutoff, or the earliest record in range
+      accountMetrics.forEach(m => {
+        const mTime = new Date(m.collected_at).getTime();
+        const cutoffTime = metricsCutoff.getTime();
+        const existing = map.get(m.account_id);
+        if (!existing) {
+          map.set(m.account_id, m);
+        } else {
+          const existingTime = new Date(existing.collected_at).getTime();
+          // Prefer the record closest to (and <= cutoff), otherwise earliest in range
+          const mDist = Math.abs(mTime - cutoffTime);
+          const eDist = Math.abs(existingTime - cutoffTime);
+          // If m is closer to cutoff and on or before it, or existing is after cutoff and m is before
+          if (mTime <= cutoffTime && (existingTime > cutoffTime || mDist < eDist)) {
+            map.set(m.account_id, m);
+          } else if (existingTime > cutoffTime && mTime < existingTime) {
+            // Both after cutoff, pick the earlier one (closest to cutoff)
+            map.set(m.account_id, m);
+          }
+        }
+      });
+    }
+    return map;
+  }, [accountMetrics, metricsCutoff]);
 
   const totalFollowers = useMemo(() => latestAccountMetrics.reduce((s, m) => s + (m.followers || 0), 0), [latestAccountMetrics]);
 
-  // Overall growth percentage
+  // Overall growth percentage — compares latest vs baseline (start of date range)
   const overallGrowth = useMemo(() => {
-    let oldestTotal = 0;
+    let baselineTotal = 0;
     let latestTotal = 0;
     latestAccountMetrics.forEach(latest => {
       latestTotal += latest.followers || 0;
-      const history = accountGrowth.get(latest.account_id);
-      if (history && history.length > 0) {
-        oldestTotal += history[0].followers || 0;
+      const baseline = baselineMetrics.get(latest.account_id);
+      if (baseline) {
+        baselineTotal += baseline.followers || 0;
       }
     });
-    const diff = latestTotal - oldestTotal;
-    const pct = oldestTotal > 0 ? ((diff / oldestTotal) * 100).toFixed(1) : '0.0';
-    return { diff, pct, oldestTotal, latestTotal };
-  }, [latestAccountMetrics, accountGrowth]);
+    const diff = latestTotal - baselineTotal;
+    const pct = baselineTotal > 0 ? ((diff / baselineTotal) * 100).toFixed(1) : '0.0';
+    return { diff, pct, oldestTotal: baselineTotal, latestTotal };
+  }, [latestAccountMetrics, baselineMetrics]);
 
   // --- KPI calculations ---
   const kpis = useMemo(() => {
@@ -516,13 +565,14 @@ export default function AnalyticsPage() {
               const terms = PLATFORM_TERMS[platform] || { audience: 'Followers', content: 'Posts', engagement: 'Engagement' };
               const history = accountGrowth.get(m.account_id) || [m];
 
-              // Growth calculation
-              const oldest = history[0];
-              const followerGrowth = oldest && oldest.followers > 0 ? m.followers - oldest.followers : 0;
-              const growthPct = oldest && oldest.followers > 0 ? ((followerGrowth / oldest.followers) * 100).toFixed(1) : '0.0';
+              // Growth calculation — compare current vs baseline (start of date range)
+              const baseline = baselineMetrics.get(m.account_id);
+              const baselineFollowers = baseline?.followers || 0;
+              const followerGrowth = baselineFollowers > 0 ? m.followers - baselineFollowers : 0;
+              const growthPct = baselineFollowers > 0 ? ((followerGrowth / baselineFollowers) * 100).toFixed(1) : '0.0';
 
-              // SVG chart
-              const chartPoints = history.slice(-30);
+              // SVG chart — show all data points within the date range
+              const chartPoints = history;
               const vals = chartPoints.map(p => p.followers || 0);
               const chartMax = Math.max(...vals);
               const chartMin = Math.min(...vals);
