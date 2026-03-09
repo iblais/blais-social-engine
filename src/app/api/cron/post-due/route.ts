@@ -209,16 +209,32 @@ async function healStuckPosts(supabase: ReturnType<typeof createAdminClient>) {
     .select('id');
 
   // Posts stuck publishing with no platform_post_id — reset to scheduled for retry
-  const { data: stuck } = await supabase
+  // Also increment retry_count to prevent infinite retry loops
+  const { data: stuckRaw } = await supabase
     .from('posts')
-    .update({
-      status: 'scheduled',
-      scheduled_at: new Date().toISOString(),
-    })
+    .select('id, retry_count')
     .eq('status', 'publishing')
     .is('platform_post_id', null)
-    .lte('updated_at', tenMinAgo)
-    .select('id');
+    .lte('updated_at', tenMinAgo);
+
+  const stuck: { id: string }[] = [];
+  for (const s of stuckRaw || []) {
+    const newRetry = (s.retry_count || 0) + 1;
+    if (newRetry >= 3) {
+      await supabase.from('posts').update({
+        status: 'failed',
+        error_message: 'Max retries exhausted (stuck in publishing)',
+        retry_count: newRetry,
+      }).eq('id', s.id);
+    } else {
+      await supabase.from('posts').update({
+        status: 'scheduled',
+        scheduled_at: new Date().toISOString(),
+        retry_count: newRetry,
+      }).eq('id', s.id);
+    }
+    stuck.push({ id: s.id });
+  }
 
   const healedCount = (succeeded?.length || 0) + (stuck?.length || 0);
   if (healedCount > 0) {
@@ -281,6 +297,16 @@ export async function GET(req: NextRequest) {
     const backoffMs = getBackoffMinutes(p.retry_count || 0) * 60 * 1000;
     return Date.now() - updatedAt >= backoffMs;
   });
+
+  // Atomically claim retry posts (set status='publishing' to prevent race conditions)
+  if (readyRetries.length > 0) {
+    const retryIds = readyRetries.map((p) => p.id);
+    await supabase
+      .from('posts')
+      .update({ status: 'publishing', updated_at: new Date().toISOString() })
+      .in('id', retryIds)
+      .eq('status', 'retry'); // Only update if still in retry (another run hasn't claimed them)
+  }
 
   // Combine due posts + ready retries, then pick max 1 per account
   const combined = [...(duePosts || []), ...readyRetries];
@@ -351,7 +377,10 @@ export async function GET(req: NextRequest) {
       }
 
       let platformPostId: string;
-      const media = post.post_media || [];
+      const media = (post.post_media || []).sort(
+        (a: { sort_order: number }, b: { sort_order: number }) =>
+          (a.sort_order ?? 0) - (b.sort_order ?? 0)
+      );
       const primaryMedia = media[0];
 
       switch (account.platform) {
