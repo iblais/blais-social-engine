@@ -510,6 +510,30 @@ export async function GET(req: NextRequest) {
         error_message: null,
       }).eq('id', post.id);
 
+      // Move media files to "posted/" folder in storage to prevent re-use
+      if (media.length > 0) {
+        for (const m of media) {
+          if (!m.storage_path) continue;
+          const newPath = m.storage_path.startsWith('posted/')
+            ? m.storage_path
+            : `posted/${m.storage_path}`;
+          const { error: moveErr } = await supabase.storage
+            .from('media')
+            .move(m.storage_path, newPath);
+          if (!moveErr) {
+            const { data: { publicUrl } } = supabase.storage
+              .from('media')
+              .getPublicUrl(newPath);
+            await supabase.from('post_media').update({
+              storage_path: newPath,
+              media_url: publicUrl,
+            }).eq('id', m.id);
+          } else {
+            console.error(`[post-due] Failed to move media ${m.storage_path}:`, moveErr.message);
+          }
+        }
+      }
+
       await supabase.from('activity_log').insert({
         user_id: post.user_id,
         action: 'post_published',
