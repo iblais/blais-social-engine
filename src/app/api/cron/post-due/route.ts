@@ -258,9 +258,9 @@ export async function GET(req: NextRequest) {
   const healed = await healStuckPosts(supabase);
 
   // 1) Atomically claim scheduled posts by setting status='publishing' in one step
-  //    This prevents race conditions when multiple cron instances run concurrently
+  //    Claim only 1 post per run — cron fires every minute, so each post gets full 60s
   const { data: claimedIds } = await supabase.rpc('claim_due_posts', {
-    max_posts: 10,
+    max_posts: 1,
     due_before: now,
   });
 
@@ -289,7 +289,7 @@ export async function GET(req: NextRequest) {
     .neq('platform', 'twitter')
     .lt('retry_count', 3)
     .order('updated_at', { ascending: true })
-    .limit(5);
+    .limit(1);
 
   // Filter retries that have waited long enough based on their retry count
   const readyRetries = (retryPosts || []).filter((p) => {
