@@ -394,6 +394,7 @@ export async function GET(req: NextRequest) {
             caption: post.caption,
             imageUrl: primaryMedia?.media_url || '',
             mediaType: post.media_type as 'image' | 'video' | 'carousel',
+            postType: (post.post_type as 'post' | 'reel' | 'story') || 'post',
             carouselUrls,
           });
           break;

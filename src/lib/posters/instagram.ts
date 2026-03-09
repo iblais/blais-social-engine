@@ -4,6 +4,7 @@ interface PostPayload {
   caption: string;
   imageUrl: string;
   mediaType: 'image' | 'video' | 'carousel';
+  postType?: 'post' | 'reel' | 'story';
   carouselUrls?: string[];
 }
 
@@ -40,10 +41,15 @@ async function graphPost(url: string, body: Record<string, string>, token: strin
   return res.json();
 }
 
+/**
+ * Wait for a media container to finish processing.
+ * Images: ~5s, Videos/Reels: up to 2-3 minutes.
+ */
 async function waitForContainer(
   containerId: string,
   token: string,
-  maxAttempts = 30
+  maxAttempts = 30,
+  intervalMs = 1000
 ): Promise<void> {
   const base = getGraphBase(token);
   for (let i = 0; i < maxAttempts; i++) {
@@ -58,14 +64,19 @@ async function waitForContainer(
       throw new Error(`Container ${containerId} failed: ${JSON.stringify(data)}`);
     }
 
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, intervalMs));
   }
-  throw new Error(`Container ${containerId} timed out`);
+  throw new Error(`Container ${containerId} timed out after ${maxAttempts * intervalMs / 1000}s`);
 }
 
 export async function publishInstagramPost(payload: PostPayload): Promise<string> {
-  const { igUserId, accessToken, caption, imageUrl, mediaType, carouselUrls } = payload;
+  const { igUserId, accessToken, caption, imageUrl, mediaType, postType, carouselUrls } = payload;
   const base = getGraphBase(accessToken);
+  const isVideo = mediaType === 'video';
+
+  // Determine wait params: videos need longer polling (60 attempts × 3s = 3 min)
+  const waitAttempts = isVideo ? 60 : 30;
+  const waitInterval = isVideo ? 3000 : 1000;
 
   let containerId: string;
 
@@ -73,18 +84,18 @@ export async function publishInstagramPost(payload: PostPayload): Promise<string
     // Create individual item containers
     const itemIds: string[] = [];
     for (const url of carouselUrls) {
-      const isVideo = url.match(/\.(mp4|mov|avi)$/i);
+      const isVid = url.match(/\.(mp4|mov|avi)$/i);
       const item: ContainerResponse = await graphPost(
         `${base}/${igUserId}/media`,
         {
-          ...(isVideo
+          ...(isVid
             ? { media_type: 'VIDEO', video_url: url }
             : { image_url: url }),
           is_carousel_item: 'true',
         },
         accessToken
       );
-      await waitForContainer(item.id, accessToken);
+      await waitForContainer(item.id, accessToken, isVid ? 60 : 30, isVid ? 3000 : 1000);
       itemIds.push(item.id);
     }
 
@@ -99,7 +110,30 @@ export async function publishInstagramPost(payload: PostPayload): Promise<string
       accessToken
     );
     containerId = carousel.id;
-  } else if (mediaType === 'video') {
+  } else if (isVideo && postType === 'story') {
+    // Story video: use STORIES media type
+    const container: ContainerResponse = await graphPost(
+      `${base}/${igUserId}/media`,
+      {
+        media_type: 'STORIES',
+        video_url: imageUrl,
+      },
+      accessToken
+    );
+    containerId = container.id;
+  } else if (!isVideo && postType === 'story') {
+    // Story image
+    const container: ContainerResponse = await graphPost(
+      `${base}/${igUserId}/media`,
+      {
+        media_type: 'STORIES',
+        image_url: imageUrl,
+      },
+      accessToken
+    );
+    containerId = container.id;
+  } else if (isVideo) {
+    // Video → Reel (default for video on Instagram)
     const container: ContainerResponse = await graphPost(
       `${base}/${igUserId}/media`,
       {
@@ -111,7 +145,7 @@ export async function publishInstagramPost(payload: PostPayload): Promise<string
     );
     containerId = container.id;
   } else {
-    // Single image
+    // Single image post
     const container: ContainerResponse = await graphPost(
       `${base}/${igUserId}/media`,
       {
@@ -124,7 +158,7 @@ export async function publishInstagramPost(payload: PostPayload): Promise<string
   }
 
   // Wait for container to be ready
-  await waitForContainer(containerId, accessToken);
+  await waitForContainer(containerId, accessToken, waitAttempts, waitInterval);
 
   // Publish
   const result = await graphPost(
