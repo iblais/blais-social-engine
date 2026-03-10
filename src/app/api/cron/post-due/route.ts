@@ -243,6 +243,39 @@ async function healStuckPosts(supabase: ReturnType<typeof createAdminClient>) {
   return healedCount;
 }
 
+/**
+ * Check if a post with the same caption already exists on Instagram.
+ * Returns the existing platform post ID if found, or null if not found.
+ * This prevents duplicate posts when a post was actually published but got marked as failed
+ * due to a transient error (e.g. 500 after the publish call succeeded).
+ */
+async function findExistingInstagramPost(
+  igUserId: string,
+  accessToken: string,
+  caption: string
+): Promise<string | null> {
+  try {
+    const base = accessToken.startsWith('IGA')
+      ? 'https://graph.instagram.com/v22.0'
+      : 'https://graph.facebook.com/v22.0';
+    const res = await fetch(
+      `${base}/${igUserId}/media?fields=id,caption&limit=25&access_token=${accessToken}`,
+      { signal: AbortSignal.timeout(10000) }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    // Compare first 120 chars of caption — unique enough to detect duplicates
+    const prefix = caption.slice(0, 120).trim();
+    const match = (data.data || []).find(
+      (m: { id: string; caption?: string }) =>
+        m.caption && m.caption.slice(0, 120).trim() === prefix
+    );
+    return match?.id ?? null;
+  } catch {
+    return null; // If check fails, proceed with publishing (fail-open)
+  }
+}
+
 /* ---------- main cron handler ---------- */
 
 export async function GET(req: NextRequest) {
@@ -385,18 +418,30 @@ export async function GET(req: NextRequest) {
 
       switch (account.platform) {
         case 'instagram': {
-          const carouselUrls = media.length > 1
-            ? media.map((m: { media_url: string }) => m.media_url)
-            : undefined;
-          platformPostId = await publishInstagramPost({
-            igUserId: account.platform_user_id,
-            accessToken: freshToken,
-            caption: post.caption,
-            imageUrl: primaryMedia?.media_url || '',
-            mediaType: post.media_type as 'image' | 'video' | 'carousel',
-            postType: (post.post_type as 'post' | 'reel' | 'story') || 'post',
-            carouselUrls,
-          });
+          // Always check Instagram first — prevents duplicates if a previous attempt
+          // actually succeeded but errored after publish (e.g. 500 from IG servers)
+          const existingIgId = await findExistingInstagramPost(
+            account.platform_user_id,
+            freshToken,
+            post.caption
+          );
+          if (existingIgId) {
+            console.log(`[post-due] Duplicate prevented: post ${post.id} already on Instagram (${existingIgId})`);
+            platformPostId = existingIgId;
+          } else {
+            const carouselUrls = media.length > 1
+              ? media.map((m: { media_url: string }) => m.media_url)
+              : undefined;
+            platformPostId = await publishInstagramPost({
+              igUserId: account.platform_user_id,
+              accessToken: freshToken,
+              caption: post.caption,
+              imageUrl: primaryMedia?.media_url || '',
+              mediaType: post.media_type as 'image' | 'video' | 'carousel',
+              postType: (post.post_type as 'post' | 'reel' | 'story') || 'post',
+              carouselUrls,
+            });
+          }
           break;
         }
         case 'facebook': {
