@@ -45,6 +45,7 @@ import {
 import type { Post, PostMedia } from '@/types/database';
 import { useBrandAccounts } from '@/lib/hooks/use-brand-accounts';
 import { toast } from 'sonner';
+import { parseDate } from '@/lib/utils';
 
 interface PostWithRelations extends Post {
   social_accounts?: { username: string; platform: string } | null;
@@ -190,7 +191,7 @@ export default function CalendarPage() {
 
     // Keep original minutes, just change day and hour
     const origMinutes = dragPost.scheduled_at
-      ? new Date(dragPost.scheduled_at).getMinutes()
+      ? parseDate(dragPost.scheduled_at).getMinutes()
       : 0;
     const newDate = setMinutes(setHours(day, hour), origMinutes);
 
@@ -214,7 +215,7 @@ export default function CalendarPage() {
     setDropTarget(null);
     if (!dragPost) return;
 
-    const orig = dragPost.scheduled_at ? new Date(dragPost.scheduled_at) : new Date();
+    const orig = dragPost.scheduled_at ? parseDate(dragPost.scheduled_at) : new Date();
     const newDate = setMinutes(setHours(day, orig.getHours()), orig.getMinutes());
 
     const { error } = await supabase
@@ -273,7 +274,7 @@ export default function CalendarPage() {
         )}
         {!compact && post.scheduled_at && (
           <span className="text-[9px] opacity-60 flex-shrink-0">
-            {format(new Date(post.scheduled_at), 'h:mm a')}
+            {format(parseDate(post.scheduled_at), 'h:mm a')}
           </span>
         )}
         <span className="truncate opacity-80">
@@ -294,7 +295,7 @@ export default function CalendarPage() {
     function getPostsForSlot(day: Date, hour: number) {
       return posts.filter((p) => {
         if (!p.scheduled_at) return false;
-        const d = new Date(p.scheduled_at);
+        const d = parseDate(p.scheduled_at);
         return isSameDay(d, day) && getHours(d) === hour;
       });
     }
@@ -573,10 +574,10 @@ export default function CalendarPage() {
               </div>
 
               {selectedPost.scheduled_at && (
-                <p className="text-sm"><span className="text-muted-foreground">Scheduled:</span> {format(new Date(selectedPost.scheduled_at), 'PPP p')}</p>
+                <p className="text-sm"><span className="text-muted-foreground">Scheduled:</span> {format(parseDate(selectedPost.scheduled_at), 'PPP p')}</p>
               )}
               {selectedPost.published_at && (
-                <p className="text-sm"><span className="text-muted-foreground">Published:</span> {format(new Date(selectedPost.published_at), 'PPP p')}</p>
+                <p className="text-sm"><span className="text-muted-foreground">Published:</span> {format(parseDate(selectedPost.published_at), 'PPP p')}</p>
               )}
 
               <div className="rounded-lg bg-muted p-3 max-h-[200px] overflow-y-auto">

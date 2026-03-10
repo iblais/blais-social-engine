@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { ImagePlus, Clock, Save, Send, Trash2, ArrowLeft, Check, Sparkles } from 'lucide-react';
 import type { SocialAccount, PostMedia } from '@/types/database';
 import { useBrandAccounts } from '@/lib/hooks/use-brand-accounts';
+import { parseDate } from '@/lib/utils';
 
 // Platform config
 const PLATFORM_META: Record<string, { icon: string; label: string; color: string; charLimit: number; postTypes: { value: string; label: string }[] }> = {
@@ -85,7 +86,7 @@ export default function ComposePage() {
         setCaption(post.caption || '');
         setEnabledAccountIds(new Set([post.account_id]));
         if (post.scheduled_at) {
-          const d = new Date(post.scheduled_at);
+          const d = parseDate(post.scheduled_at);
           const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
           setScheduledAt(local.toISOString().slice(0, 16));
         }

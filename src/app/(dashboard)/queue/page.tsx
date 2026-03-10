@@ -26,6 +26,7 @@ import { format } from 'date-fns';
 import { Trash2, RotateCcw, Pencil, Clock, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useBrandAccounts } from '@/lib/hooks/use-brand-accounts';
+import { parseDate } from '@/lib/utils';
 
 interface PostRow {
   id: string;
@@ -198,7 +199,7 @@ export default function QueuePage() {
                           {post.scheduled_at && (
                             <>
                               <Clock className="h-3 w-3" />
-                              {format(new Date(post.scheduled_at), 'MMM d, h:mm a')}
+                              {format(parseDate(post.scheduled_at), 'MMM d, h:mm a')}
                             </>
                           )}
                         </div>
@@ -275,7 +276,7 @@ export default function QueuePage() {
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                             {post.scheduled_at
-                              ? format(new Date(post.scheduled_at), 'MMM d, h:mm a')
+                              ? format(parseDate(post.scheduled_at), 'MMM d, h:mm a')
                               : '—'}
                           </TableCell>
                           <TableCell>

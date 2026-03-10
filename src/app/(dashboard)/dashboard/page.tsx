@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { formatDistanceToNow, format, subDays, eachDayOfInterval } from 'date-fns';
 import { CalendarDays, TrendingUp, Send, AlertCircle, Users, BarChart3 } from 'lucide-react';
 import { useAccountStore } from '@/lib/store/account-store';
+import { parseDate } from '@/lib/utils';
 
 interface Brand {
   id: string;
@@ -141,7 +142,7 @@ export default function DashboardPage() {
     });
 
     posts.forEach((post: any) => {
-      const dateKey = format(new Date(post.created_at), 'yyyy-MM-dd');
+      const dateKey = format(parseDate(post.created_at), 'yyyy-MM-dd');
       const entry = dayMap.get(dateKey);
       if (entry) {
         if (post.status === 'posted') entry.posted++;
@@ -369,7 +370,7 @@ export default function DashboardPage() {
               const color = PLATFORM_COLORS[m.platform || ''] || '#6B7280';
               const accountHistory = growthMetrics
                 .filter((g) => g.account_id === m.account_id)
-                .sort((a, b) => new Date(a.collected_at).getTime() - new Date(b.collected_at).getTime());
+                .sort((a, b) => parseDate(a.collected_at).getTime() - parseDate(b.collected_at).getTime());
               const oldest = accountHistory[0];
               const followerGrowth = oldest && oldest.followers > 0
                 ? m.followers - oldest.followers
@@ -640,8 +641,8 @@ export default function DashboardPage() {
                           {' '}@{account?.username ?? 'unknown'}
                           {' '}&middot;{' '}
                           {post.scheduled_at
-                            ? format(new Date(post.scheduled_at), 'MMM d, h:mm a')
-                            : formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}
+                            ? format(parseDate(post.scheduled_at), 'MMM d, h:mm a')
+                            : formatDistanceToNow(parseDate(post.created_at), { addSuffix: true })}
                         </p>
                       </div>
                     </div>
