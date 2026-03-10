@@ -34,6 +34,7 @@ export default function ComposePage() {
   const [mediaPreviews, setMediaPreviews] = useState<string[]>([]);
   const [existingMedia, setExistingMedia] = useState<PostMedia[]>([]);
   const [removedMediaIds, setRemovedMediaIds] = useState<string[]>([]);
+  const [libraryMedia, setLibraryMedia] = useState<{ url: string; path: string; type: string; size: number }[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingPost, setLoadingPost] = useState(false);
   const [aiCaptionLoading, setAiCaptionLoading] = useState(false);
@@ -112,6 +113,22 @@ export default function ComposePage() {
     }
   }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Load media from library (?media=url1,url2,...)
+  useEffect(() => {
+    const mediaParam = searchParams.get('media');
+    if (!mediaParam || searchParams.get('id')) return;
+    const urls = mediaParam.split(',').map(decodeURIComponent).filter(Boolean);
+    if (!urls.length) return;
+    (async () => {
+      const { data } = await supabase.from('media_assets').select('url, storage_path, media_type, file_size').in('url', urls);
+      if (!data?.length) return;
+      const ordered = urls.map(u => data.find(d => d.url === u)).filter(Boolean) as typeof data;
+      const lib = ordered.map(d => ({ url: d.url, path: d.storage_path, type: d.media_type, size: d.file_size }));
+      setLibraryMedia(lib);
+      setMediaPreviews(lib.map(l => l.url));
+    })();
+  }, [searchParams, supabase]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function toggleAccount(id: string) {
     setEnabledAccountIds((prev) => {
       const next = new Set(prev);
@@ -138,8 +155,13 @@ export default function ComposePage() {
     if (index < liveExisting.length) {
       setRemovedMediaIds((prev) => [...prev, liveExisting[index].id]);
     } else {
-      const fileIndex = index - liveExisting.length;
-      setMediaFiles((prev) => prev.filter((_, i) => i !== fileIndex));
+      const libIndex = index - liveExisting.length;
+      if (libIndex < libraryMedia.length) {
+        setLibraryMedia((prev) => prev.filter((_, i) => i !== libIndex));
+      } else {
+        const fileIndex = libIndex - libraryMedia.length;
+        setMediaFiles((prev) => prev.filter((_, i) => i !== fileIndex));
+      }
     }
     // Revoke blob URL to free memory
     const url = mediaPreviews[index];
@@ -151,7 +173,9 @@ export default function ComposePage() {
   function isVideoPreview(index: number): boolean {
     const liveExisting = existingMedia.filter((m) => !removedMediaIds.includes(m.id));
     if (index < liveExisting.length) return liveExisting[index].media_type === 'video';
-    const fileIndex = index - liveExisting.length;
+    const libIndex = index - liveExisting.length;
+    if (libIndex < libraryMedia.length) return libraryMedia[libIndex].type === 'video';
+    const fileIndex = libIndex - libraryMedia.length;
     return mediaFiles[fileIndex]?.type?.startsWith('video') || false;
   }
 
@@ -228,7 +252,7 @@ export default function ComposePage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { toast.error('Not authenticated'); setLoading(false); return; }
 
-      const totalMedia = existingMedia.filter((m) => !removedMediaIds.includes(m.id)).length + mediaFiles.length;
+      const totalMedia = existingMedia.filter((m) => !removedMediaIds.includes(m.id)).length + libraryMedia.length + mediaFiles.length;
       // "now" = schedule in the past so the cron picks it up immediately
       const dbStatus = status === 'now' ? 'scheduled' : status;
       const scheduledIso = status === 'now'
@@ -238,7 +262,8 @@ export default function ComposePage() {
       // Detect media type based on content and platform
       function getMediaType(platform: string): string {
         const hasVideo = mediaFiles.some(f => f.type.startsWith('video')) ||
-          existingMedia.filter(m => !removedMediaIds.includes(m.id)).some(m => m.media_type === 'video');
+          existingMedia.filter(m => !removedMediaIds.includes(m.id)).some(m => m.media_type === 'video') ||
+          libraryMedia.some(l => l.type === 'video');
         if (hasVideo) return 'video';
         if (totalMedia > 1 && platform === 'instagram') return 'carousel';
         return 'image';
@@ -276,9 +301,10 @@ export default function ComposePage() {
           await supabase.from('post_media').delete().eq('id', mediaId);
         }
 
-        // Link uploaded media to the original post
+        // Link library + uploaded media to the original post
         const existingCount = existingMedia.filter((m) => !removedMediaIds.includes(m.id)).length;
-        await linkMediaToPost(editId, uploadedMedia, existingCount);
+        await linkMediaToPost(editId, libraryMedia, existingCount);
+        await linkMediaToPost(editId, uploadedMedia, existingCount + libraryMedia.length);
 
         // Create new posts for any additionally enabled platforms
         const additionalAccIds = enabled.slice(1);
@@ -303,7 +329,8 @@ export default function ComposePage() {
             continue;
           }
 
-          await linkMediaToPost(newPost.id, uploadedMedia, 0);
+          await linkMediaToPost(newPost.id, libraryMedia, 0);
+          await linkMediaToPost(newPost.id, uploadedMedia, libraryMedia.length);
         }
 
         const totalPlatforms = 1 + additionalAccIds.length;
@@ -334,7 +361,8 @@ export default function ComposePage() {
             continue;
           }
 
-          await linkMediaToPost(post.id, uploadedMedia, 0);
+          await linkMediaToPost(post.id, libraryMedia, 0);
+          await linkMediaToPost(post.id, uploadedMedia, libraryMedia.length);
           created++;
         }
 
