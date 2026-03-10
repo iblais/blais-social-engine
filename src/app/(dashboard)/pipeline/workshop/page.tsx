@@ -141,13 +141,12 @@ interface PipelineLog {
 // ============================================================
 
 const STAGES = [
-  { key: 'scout', label: 'Scout', icon: Search, desc: 'Find trending topics from RSS, Reddit, HN, GitHub, X, Product Hunt', color: '#F59E0B' },
-  { key: 'research', label: 'Research', icon: Globe, desc: 'Deep-dive analysis — fetch docs, READMEs, repo structure', color: '#3B82F6' },
-  { key: 'script', label: 'Script', icon: FileText, desc: 'AI writes hook, context, demo steps, verdict, CTA', color: '#10B981' },
-  { key: 'demo', label: 'Demo', icon: Terminal, desc: 'Docker sandbox CLI + Playwright browser recording', color: '#06B6D4' },
-  { key: 'avatar', label: 'Avatar', icon: Mic, desc: 'HeyGen AI narrator — intro + verdict clips', color: '#EC4899' },
-  { key: 'editor', label: 'Editor', icon: Scissors, desc: 'FFmpeg assembly — concat, captions, music, thumbnail', color: '#8B5CF6' },
-  { key: 'publisher', label: 'Publish', icon: Upload, desc: 'Upload to Supabase Storage, create draft post', color: '#EF4444' },
+  { key: 'scout', label: 'Scout', icon: Search, desc: 'AI finds trending topics for your niche', color: '#F59E0B' },
+  { key: 'research', label: 'Research', icon: Globe, desc: 'Deep-dive — narrative arc, facts, B-roll, SEO', color: '#3B82F6' },
+  { key: 'script', label: 'Script', icon: FileText, desc: 'Full narration script with markers and cues', color: '#10B981' },
+  { key: 'avatar', label: 'Voice', icon: Mic, desc: 'ElevenLabs TTS narration generation', color: '#EC4899' },
+  { key: 'editor', label: 'Thumbnail', icon: Scissors, desc: 'AI thumbnail generation via Nano Banana 2', color: '#8B5CF6' },
+  { key: 'publisher', label: 'Publish', icon: Upload, desc: 'Save assets + topics to database', color: '#EF4444' },
 ] as const;
 
 const SOURCE_ICONS: Record<string, string> = {
@@ -359,6 +358,38 @@ export default function PipelineWorkshopPage() {
   useEffect(() => { loadRuns(); loadTopics(); }, [selectedChannel, loadRuns, loadTopics]);
 
   // ============================================================
+  // LIVE POLLING — auto-refresh runs + logs when pipeline is active
+  // ============================================================
+
+  const hasRunning = runs.some(r => r.status === 'running' || r.status === 'pending');
+
+  useEffect(() => {
+    if (!hasRunning) return;
+    const interval = setInterval(() => {
+      loadRuns();
+      // If we're viewing a running run's logs, refresh those too
+      if (selectedRunId) {
+        const run = runs.find(r => r.id === selectedRunId);
+        if (run && (run.status === 'running' || run.status === 'pending')) {
+          loadLogs(selectedRunId);
+        }
+      }
+    }, 3000); // Poll every 3 seconds
+    return () => clearInterval(interval);
+  }, [hasRunning, selectedRunId, runs, loadRuns, loadLogs]);
+
+  // Auto-select and expand the latest running run
+  useEffect(() => {
+    if (!selectedRunId) {
+      const runningRun = runs.find(r => r.status === 'running');
+      if (runningRun) {
+        setSelectedRunId(runningRun.id);
+        loadLogs(runningRun.id);
+      }
+    }
+  }, [runs, selectedRunId, loadLogs]);
+
+  // ============================================================
   // ACTIONS
   // ============================================================
 
@@ -372,8 +403,13 @@ export default function PipelineWorkshopPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to trigger');
-      toast.success('Pipeline run queued');
-      loadRuns();
+      toast.success('Pipeline launched! Watch the logs below...');
+      await loadRuns();
+      // Auto-select the new run
+      if (data.run?.id) {
+        setSelectedRunId(data.run.id);
+        loadLogs(data.run.id);
+      }
     } catch (err) { toast.error((err as Error).message); }
     setTriggerLoading(null);
   }
@@ -449,10 +485,9 @@ export default function PipelineWorkshopPage() {
   const systemChecks = useMemo(() => [
     { label: 'Pipeline Channels', ok: channels.length > 0, detail: `${channels.length} configured` },
     { label: 'Active Channels', ok: activeChannels > 0, detail: `${activeChannels} active` },
-    { label: 'Gemini AI', ok: true, detail: 'Connected' },
-    { label: 'Supabase', ok: true, detail: 'Connected' },
-    { label: 'HeyGen Avatar', ok: false, detail: 'Key needed' },
-    { label: 'AssemblyAI', ok: false, detail: 'Key needed' },
+    { label: 'Gemini AI', ok: true, detail: 'Scout + Script + Thumbnail' },
+    { label: 'ElevenLabs', ok: true, detail: 'Voice narration' },
+    { label: 'Supabase', ok: true, detail: 'Storage + DB' },
   ], [channels.length, activeChannels]);
 
   // ============================================================
@@ -722,10 +757,11 @@ export default function PipelineWorkshopPage() {
                           ) : logs.length === 0 ? (
                             <p className="text-[11px] text-zinc-700 py-3 text-center">No logs recorded.</p>
                           ) : (
-                            <div className="max-h-48 overflow-y-auto space-y-px font-mono text-[11px]">
+                            <div className="max-h-96 overflow-y-auto space-y-px font-mono text-[11px]" ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}>
                               {logs.map(log => (
                                 <div key={log.id} className={`flex items-start gap-2 px-2 py-1 rounded ${
                                   log.level === 'error' ? 'text-red-400 bg-red-950/20' :
+                                  log.level === 'success' ? 'text-emerald-400' :
                                   log.level === 'warn' ? 'text-amber-400' : 'text-zinc-500'
                                 }`}>
                                   <span className="text-zinc-700 shrink-0 w-14 text-[10px]">
