@@ -244,6 +244,74 @@ async function healStuckPosts(supabase: ReturnType<typeof createAdminClient>) {
 }
 
 /**
+ * Check if a post with the same caption already exists on Facebook (page posts).
+ * Returns the existing post ID if found, or null if not found.
+ */
+async function findExistingFacebookPost(
+  pageId: string,
+  accessToken: string,
+  caption: string
+): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/v22.0/${pageId}/posts?fields=id,message&limit=25&access_token=${accessToken}`,
+      { signal: AbortSignal.timeout(10000) }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const prefix = caption.slice(0, 120).trim();
+    const match = (data.data || []).find(
+      (m: { id: string; message?: string }) =>
+        m.message && m.message.slice(0, 120).trim() === prefix
+    );
+    return match?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if a post with the same text already exists on Bluesky.
+ * Returns the existing post URI if found, or null if not found.
+ */
+async function findExistingBlueskyPost(
+  handle: string,
+  appPassword: string,
+  caption: string
+): Promise<string | null> {
+  try {
+    // Authenticate to get session
+    const sessionRes = await fetch('https://bsky.social/xrpc/com.atproto.server.createSession', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier: handle, password: appPassword }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!sessionRes.ok) return null;
+    const session = await sessionRes.json();
+
+    // Fetch recent posts
+    const feedRes = await fetch(
+      `https://bsky.social/xrpc/app.bsky.feed.getAuthorFeed?actor=${session.did}&limit=25`,
+      {
+        headers: { Authorization: `Bearer ${session.accessJwt}` },
+        signal: AbortSignal.timeout(10000),
+      }
+    );
+    if (!feedRes.ok) return null;
+    const feed = await feedRes.json();
+    const prefix = caption.slice(0, 120).trim();
+    const match = (feed.feed || []).find(
+      (item: { post: { uri: string; record?: { text?: string } } }) =>
+        item.post?.record?.text && item.post.record.text.slice(0, 120).trim() === prefix
+    );
+    return match?.post?.uri ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Check if a post with the same caption already exists on Instagram.
  * Returns the existing platform post ID if found, or null if not found.
  * This prevents duplicate posts when a post was actually published but got marked as failed
@@ -445,19 +513,29 @@ export async function GET(req: NextRequest) {
           break;
         }
         case 'facebook': {
-          const isVideo = post.media_type === 'video' ||
-            primaryMedia?.media_type === 'video';
-          const fbMediaUrls = !isVideo && media.length > 1
-            ? media.map((m: { media_url: string }) => m.media_url)
-            : undefined;
-          platformPostId = await publishFacebookPost({
-            pageId: account.platform_user_id,
-            accessToken: freshToken,
-            caption: post.caption,
-            videoUrl: isVideo ? primaryMedia?.media_url : undefined,
-            imageUrl: !isVideo ? primaryMedia?.media_url : undefined,
-            imageUrls: fbMediaUrls,
-          });
+          const existingFbId = await findExistingFacebookPost(
+            account.platform_user_id,
+            freshToken,
+            post.caption
+          );
+          if (existingFbId) {
+            console.log(`[post-due] Duplicate prevented: post ${post.id} already on Facebook (${existingFbId})`);
+            platformPostId = existingFbId;
+          } else {
+            const isVideo = post.media_type === 'video' ||
+              primaryMedia?.media_type === 'video';
+            const fbMediaUrls = !isVideo && media.length > 1
+              ? media.map((m: { media_url: string }) => m.media_url)
+              : undefined;
+            platformPostId = await publishFacebookPost({
+              pageId: account.platform_user_id,
+              accessToken: freshToken,
+              caption: post.caption,
+              videoUrl: isVideo ? primaryMedia?.media_url : undefined,
+              imageUrl: !isVideo ? primaryMedia?.media_url : undefined,
+              imageUrls: fbMediaUrls,
+            });
+          }
           break;
         }
         case 'bluesky': {
@@ -489,13 +567,23 @@ export async function GET(req: NextRequest) {
             }
           }
 
-          platformPostId = await publishBlueskyPost({
-            handle: account.username,
-            appPassword: freshToken,
-            caption: bskyCaption,
-            imageUrl: bskyPrimaryImage?.media_url,
-            imageUrls: bskyMediaUrls,
-          });
+          const existingBskyUri = await findExistingBlueskyPost(
+            account.username,
+            freshToken,
+            bskyCaption
+          );
+          if (existingBskyUri) {
+            console.log(`[post-due] Duplicate prevented: post ${post.id} already on Bluesky (${existingBskyUri})`);
+            platformPostId = existingBskyUri;
+          } else {
+            platformPostId = await publishBlueskyPost({
+              handle: account.username,
+              appPassword: freshToken,
+              caption: bskyCaption,
+              imageUrl: bskyPrimaryImage?.media_url,
+              imageUrls: bskyMediaUrls,
+            });
+          }
           break;
         }
         case 'twitter': {
