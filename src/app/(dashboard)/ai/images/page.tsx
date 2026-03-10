@@ -277,7 +277,7 @@ export default function AIImagesPage() {
                 {/* Orientation */}
                 <div className="flex bg-muted rounded-lg p-1">
                   <button
-                    onClick={() => setOrientation('landscape')}
+                    onClick={() => { setOrientation('landscape'); setAspectRatio('16:9'); }}
                     className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all ${
                       orientation === 'landscape' ? 'bg-background shadow-sm' : 'text-muted-foreground'
                     }`}
@@ -285,7 +285,7 @@ export default function AIImagesPage() {
                     ▬ Landscape
                   </button>
                   <button
-                    onClick={() => setOrientation('portrait')}
+                    onClick={() => { setOrientation('portrait'); setAspectRatio('9:16'); }}
                     className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all ${
                       orientation === 'portrait' ? 'bg-background shadow-sm' : 'text-muted-foreground'
                     }`}

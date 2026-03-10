@@ -181,12 +181,10 @@ export default function AnalyticsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Manual refresh — trigger fetch-metrics and reload
+  // Manual refresh — reload analytics from DB
   async function handleRefresh() {
     setRefreshing(true);
     try {
-      await fetch('/api/posts/publish', { method: 'POST' }); // triggers cron
-      await new Promise(r => setTimeout(r, 2000));
       await load();
       toast.success('Analytics refreshed');
     } catch {

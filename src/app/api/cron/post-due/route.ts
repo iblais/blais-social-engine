@@ -512,9 +512,11 @@ export async function GET(req: NextRequest) {
       }).eq('id', post.id);
 
       // Move media files to "posted/" folder in storage to prevent re-use
+      // Skip library/ files — they're shared assets used across multiple posts
       if (media.length > 0) {
         for (const m of media) {
           if (!m.storage_path) continue;
+          if (m.storage_path.startsWith('library/') || m.storage_path.startsWith('posted/')) continue;
           const newPath = m.storage_path.startsWith('posted/')
             ? m.storage_path
             : `posted/${m.storage_path}`;

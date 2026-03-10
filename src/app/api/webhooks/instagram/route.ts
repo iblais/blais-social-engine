@@ -40,7 +40,13 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const payload = JSON.parse(body);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let payload: any;
+  try {
+    payload = JSON.parse(body);
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
   const supabase = createAdminClient();
 
   try {

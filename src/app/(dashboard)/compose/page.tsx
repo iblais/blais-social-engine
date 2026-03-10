@@ -357,7 +357,7 @@ export default function ComposePage() {
           }).select('id').single();
 
           if (postErr) {
-            console.error(`Failed for ${acc.username}:`, postErr.message);
+            toast.error(`Failed to save for ${acc.platform} (${acc.username}): ${postErr.message}`);
             continue;
           }
 

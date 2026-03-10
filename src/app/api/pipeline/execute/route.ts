@@ -108,8 +108,8 @@ function parseJSON(raw: string): unknown {
   let jsonStr = cleaned.slice(start, end);
   // Fix trailing commas before ] or }
   jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1');
-  // Fix single quotes used as JSON strings
-  jsonStr = jsonStr.replace(/'/g, "'");
+  // Fix curly/smart quotes → straight quotes so JSON.parse doesn't choke
+  jsonStr = jsonStr.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
   try {
     return JSON.parse(jsonStr);
   } catch (e) {
