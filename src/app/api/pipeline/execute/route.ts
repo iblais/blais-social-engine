@@ -1,11 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { geminiGenerate, geminiGenerateImage } from '@/lib/ai/gemini';
+import { geminiGenerateImage } from '@/lib/ai/gemini';
 import { elevenLabsTTS } from '@/lib/ai/elevenlabs';
 
 export const maxDuration = 300;
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY!;
+const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
+/** Pipeline-specific Gemini call with higher token limit */
+async function pipelineGenerate(prompt: string): Promise<string> {
+  const res = await fetch(
+    `${GEMINI_BASE}/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.9, maxOutputTokens: 8192 },
+        safetySettings: [
+          { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+        ],
+      }),
+    }
+  );
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`Gemini API error ${res.status}: ${err?.error?.message || res.statusText}`);
+  }
+
+  const data = await res.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  if (!text) {
+    const reason = data.candidates?.[0]?.finishReason || 'unknown';
+    const blocked = data.promptFeedback?.blockReason;
+    throw new Error(`Gemini returned empty response (finish: ${reason}, blocked: ${blocked || 'no'})`);
+  }
+  return text;
+}
 
 interface Channel {
   id: string;
@@ -97,8 +133,16 @@ Generate 5 trending video topic ideas that would perform well right now. For eac
 
 Return ONLY valid JSON (no trailing commas, no markdown): [{"title":"...","hook":"...","trending_reason":"...","score":85,"source":"..."}]`;
 
-  const raw = await geminiGenerate(prompt, GEMINI_KEY);
-  const topics = parseJSON(raw) as Array<{ title: string; hook: string; score: number; trending_reason: string; source: string }>;
+  const raw = await pipelineGenerate(prompt);
+  await log(supabase, runId, 'scout', 'info', `Gemini returned ${raw.length} chars`, { preview: raw.slice(0, 300) });
+
+  let topics: Array<{ title: string; hook: string; score: number; trending_reason: string; source: string }>;
+  try {
+    topics = parseJSON(raw) as typeof topics;
+  } catch (parseErr) {
+    await log(supabase, runId, 'scout', 'error', `JSON parse failed: ${(parseErr as Error).message}`, { raw: raw.slice(0, 1000) });
+    throw parseErr;
+  }
 
   topics.sort((a, b) => b.score - a.score);
 
@@ -136,7 +180,7 @@ Create a detailed research brief:
 
 Return ONLY valid JSON (no trailing commas, no markdown): {"arc":{"setup":"...","rising":"...","climax":"...","resolution":"..."},"facts":["..."],"emotional_beats":["..."],"broll_keywords":["..."],"music_progression":["..."],"seo_keywords":["..."],"thumbnail":{"text":"...","visual":"..."}}`;
 
-  const raw = await geminiGenerate(prompt, GEMINI_KEY);
+  const raw = await pipelineGenerate(prompt);
   const research = parseJSON(raw) as Record<string, unknown>;
 
   await log(supabase, runId, 'research', 'success', 'Research complete', { research });
@@ -184,7 +228,7 @@ The script should be conversational, immersive, and keep the viewer hooked. No f
 
 Return ONLY valid JSON (no trailing commas, no markdown): {"title":"...","description":"YouTube description with SEO keywords","tags":["..."],"script":"full script text with markers","word_count":1500,"estimated_duration":"10:30"}`;
 
-  const raw = await geminiGenerate(prompt, GEMINI_KEY);
+  const raw = await pipelineGenerate(prompt);
   const script = parseJSON(raw) as Record<string, unknown>;
 
   await log(supabase, runId, 'script', 'success', `Script complete — ${script.word_count || '?'} words, ~${script.estimated_duration || '?'}`, { script });
