@@ -27,11 +27,13 @@ import {
   ImagePlus,
   X,
   ArrowUpDown,
+  CheckCircle2,
 } from 'lucide-react';
 import type { MediaAsset } from '@/types/database';
 
 type SortOption = 'newest' | 'oldest' | 'name-asc' | 'name-desc' | 'largest' | 'smallest';
 type ViewMode = 'grid' | 'list';
+type PostedFilter = 'all' | 'not-posted' | 'posted';
 
 export default function MediaLibraryPage() {
   const [assets, setAssets] = useState<MediaAsset[]>([]);
@@ -42,6 +44,8 @@ export default function MediaLibraryPage() {
   const [sortBy, setSortBy] = useState<SortOption>('newest');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [postedPaths, setPostedPaths] = useState<Set<string>>(new Set());
+  const [postedFilter, setPostedFilter] = useState<PostedFilter>('all');
   const dragCounter = useRef(0);
   const { activeBrandId } = useBrandAccounts();
   const supabase = useMemo(() => createClient(), []);
@@ -78,6 +82,13 @@ export default function MediaLibraryPage() {
     }
     const { data } = await query.limit(100);
     setAssets(data || []);
+
+    // Fetch which storage_paths have been used in published posts
+    const { data: postedMedia } = await supabase
+      .from('post_media')
+      .select('storage_path, posts!inner(status)')
+      .eq('posts.status', 'posted');
+    setPostedPaths(new Set((postedMedia || []).map((m: { storage_path: string }) => m.storage_path)));
   }, [supabase, filter, sortBy, activeBrandId]);
 
   useEffect(() => { load(); }, [load]);
@@ -184,7 +195,7 @@ export default function MediaLibraryPage() {
     if (!selectedIds.size) return;
     if (!confirm(`Delete ${selectedIds.size} item(s)?`)) return;
 
-    const toDelete = assets.filter(a => selectedIds.has(a.id));
+    const toDelete = filteredAssets.filter(a => selectedIds.has(a.id));
     const storagePaths = toDelete.map(a => a.storage_path);
 
     await supabase.storage.from('media').remove(storagePaths);
@@ -206,7 +217,7 @@ export default function MediaLibraryPage() {
   }
 
   function selectAll() {
-    setSelectedIds(new Set(assets.map(a => a.id)));
+    setSelectedIds(new Set(filteredAssets.map(a => a.id)));
   }
 
   function deselectAll() {
@@ -219,7 +230,7 @@ export default function MediaLibraryPage() {
   }
 
   function addSelectedToCompose() {
-    const urls = assets.filter(a => selectedIds.has(a.id)).map(a => a.url);
+    const urls = filteredAssets.filter(a => selectedIds.has(a.id)).map(a => a.url);
     useInCompose(urls);
   }
 
@@ -236,6 +247,12 @@ export default function MediaLibraryPage() {
   }
 
   const hasSelection = selectedIds.size > 0;
+
+  const filteredAssets = useMemo(() => {
+    if (postedFilter === 'posted') return assets.filter(a => postedPaths.has(a.storage_path));
+    if (postedFilter === 'not-posted') return assets.filter(a => !postedPaths.has(a.storage_path));
+    return assets;
+  }, [assets, postedPaths, postedFilter]);
 
   return (
     <div
@@ -280,7 +297,7 @@ export default function MediaLibraryPage() {
         {/* Left: Title + count */}
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold">Media Library</h1>
-          <Badge variant="secondary" className="text-sm">{assets.length} items</Badge>
+          <Badge variant="secondary" className="text-sm">{filteredAssets.length} items</Badge>
         </div>
 
         {/* Right: Controls */}
@@ -291,6 +308,18 @@ export default function MediaLibraryPage() {
             onChange={e => setFilter(e.target.value)}
             className="w-48"
           />
+
+          <Select value={postedFilter} onValueChange={(v) => setPostedFilter(v as PostedFilter)}>
+            <SelectTrigger className="w-40">
+              <CheckCircle2 className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Media</SelectItem>
+              <SelectItem value="not-posted">Not Posted</SelectItem>
+              <SelectItem value="posted">Already Posted</SelectItem>
+            </SelectContent>
+          </Select>
 
           <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
             <SelectTrigger className="w-44">
@@ -328,7 +357,7 @@ export default function MediaLibraryPage() {
           </div>
 
           {/* Select all / deselect */}
-          {assets.length > 0 && (
+          {filteredAssets.length > 0 && (
             <Button variant="outline" size="sm" onClick={hasSelection ? deselectAll : selectAll}>
               {hasSelection ? 'Deselect' : 'Select All'}
             </Button>
@@ -344,18 +373,25 @@ export default function MediaLibraryPage() {
       </div>
 
       {/* Empty state */}
-      {!assets.length ? (
+      {!filteredAssets.length ? (
         <Card>
           <CardContent className="py-16 text-center">
             <FolderOpen className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
-            <p className="text-muted-foreground">No media yet. Upload images or videos to get started.</p>
+            <p className="text-muted-foreground">
+              {postedFilter === 'posted'
+                ? 'No posted media found.'
+                : postedFilter === 'not-posted'
+                ? 'All media has been posted!'
+                : 'No media yet. Upload images or videos to get started.'}
+            </p>
           </CardContent>
         </Card>
       ) : viewMode === 'grid' ? (
         /* Grid View */
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-          {assets.map(asset => {
+          {filteredAssets.map(asset => {
             const isSelected = selectedIds.has(asset.id);
+            const isPosted = postedPaths.has(asset.storage_path);
             return (
               <Card
                 key={asset.id}
@@ -383,6 +419,14 @@ export default function MediaLibraryPage() {
                   >
                     {isSelected && <Check className="h-4 w-4" />}
                   </div>
+
+                  {/* Posted badge */}
+                  {isPosted && (
+                    <div className="absolute bottom-1.5 left-1.5 z-10 flex items-center gap-1 bg-green-600/90 text-white text-[10px] font-medium px-1.5 py-0.5 rounded">
+                      <CheckCircle2 className="h-3 w-3" />
+                      Posted
+                    </div>
+                  )}
 
                   {/* Hover overlay with actions */}
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all" />
@@ -419,20 +463,22 @@ export default function MediaLibraryPage() {
         /* List View */
         <div className="border rounded-lg overflow-hidden">
           {/* Header */}
-          <div className="grid grid-cols-[2rem_1fr_6rem_6rem_5rem_5rem] gap-2 px-3 py-2 bg-muted/50 text-xs font-medium text-muted-foreground border-b">
+          <div className="grid grid-cols-[2rem_1fr_6rem_6rem_6rem_5rem_5rem] gap-2 px-3 py-2 bg-muted/50 text-xs font-medium text-muted-foreground border-b">
             <div />
             <div>Filename</div>
             <div>Type</div>
+            <div>Status</div>
             <div>Size</div>
             <div>Date</div>
             <div className="text-right">Actions</div>
           </div>
-          {assets.map(asset => {
+          {filteredAssets.map(asset => {
             const isSelected = selectedIds.has(asset.id);
+            const isPosted = postedPaths.has(asset.storage_path);
             return (
               <div
                 key={asset.id}
-                className={`group grid grid-cols-[2rem_1fr_6rem_6rem_5rem_5rem] gap-2 px-3 py-2 items-center border-b last:border-b-0 hover:bg-muted/30 cursor-pointer transition-colors ${
+                className={`group grid grid-cols-[2rem_1fr_6rem_6rem_6rem_5rem_5rem] gap-2 px-3 py-2 items-center border-b last:border-b-0 hover:bg-muted/30 cursor-pointer transition-colors ${
                   isSelected ? 'bg-primary/5' : ''
                 }`}
                 onClick={() => toggleSelect(asset.id)}
@@ -467,6 +513,20 @@ export default function MediaLibraryPage() {
                   <Badge variant="outline" className="text-xs capitalize">
                     {asset.media_type}
                   </Badge>
+                </div>
+
+                {/* Posted status */}
+                <div>
+                  {isPosted ? (
+                    <Badge className="text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 border-0">
+                      <CheckCircle2 className="h-3 w-3 mr-1" />
+                      Posted
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-xs text-muted-foreground">
+                      Not posted
+                    </Badge>
+                  )}
                 </div>
 
                 {/* Size */}
