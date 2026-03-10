@@ -21,7 +21,7 @@ function getGraphBase(token: string): string {
     : `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 }
 
-async function graphPost(url: string, body: Record<string, string>, token: string) {
+async function graphPost(url: string, body: Record<string, unknown>, token: string) {
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -81,22 +81,27 @@ export async function publishInstagramPost(payload: PostPayload): Promise<string
   let containerId: string;
 
   if (mediaType === 'carousel' && carouselUrls?.length) {
+    // Instagram allows max 10 carousel items
+    const urls = carouselUrls.slice(0, 10);
+
     // Create individual item containers
     const itemIds: string[] = [];
-    for (const url of carouselUrls) {
-      const isVid = url.match(/\.(mp4|mov|avi)$/i);
+    for (const url of urls) {
+      const isVid = /\.(mp4|mov|avi)$/i.test(url);
       const item: ContainerResponse = await graphPost(
         `${base}/${igUserId}/media`,
         {
           ...(isVid
             ? { media_type: 'VIDEO', video_url: url }
-            : { image_url: url }),
-          is_carousel_item: 'true',
+            : { media_type: 'IMAGE', image_url: url }),
+          is_carousel_item: true,
         },
         accessToken
       );
-      await waitForContainer(item.id, accessToken, isVid ? 60 : 30, isVid ? 3000 : 1000);
+      await waitForContainer(item.id, accessToken, isVid ? 60 : 30, isVid ? 3000 : 2000);
       itemIds.push(item.id);
+      // Small delay between item creation to avoid rate limiting
+      await new Promise((r) => setTimeout(r, 500));
     }
 
     // Create carousel container
