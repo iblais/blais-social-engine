@@ -37,6 +37,7 @@ export async function elevenLabsTTS(options: TTSOptions): Promise<Buffer> {
       model_id: modelId,
       voice_settings: voiceSettings,
     }),
+    signal: AbortSignal.timeout(120_000), // 2 min timeout per chunk
   });
 
   if (!res.ok) {

@@ -5,11 +5,13 @@ import { elevenLabsTTS } from '@/lib/ai/elevenlabs';
 
 export const maxDuration = 300;
 
-const GEMINI_KEY = process.env.GEMINI_API_KEY!;
+const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
-/** Pipeline-specific Gemini call with higher token limit */
+/** Pipeline-specific Gemini call with higher token limit + safety off + 90s timeout */
 async function pipelineGenerate(prompt: string): Promise<string> {
+  if (!GEMINI_KEY) throw new Error('GEMINI_API_KEY env var is not set');
+
   const res = await fetch(
     `${GEMINI_BASE}/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
     {
@@ -25,6 +27,7 @@ async function pipelineGenerate(prompt: string): Promise<string> {
           { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
         ],
       }),
+      signal: AbortSignal.timeout(90_000),
     }
   );
 
@@ -56,6 +59,9 @@ interface Channel {
 }
 
 type Supabase = ReturnType<typeof createAdminClient>;
+
+/** Track current stage for accurate error logging */
+let currentStage = 'unknown';
 
 async function log(
   supabase: Supabase,
@@ -100,21 +106,31 @@ function parseJSON(raw: string): unknown {
     : cleaned.lastIndexOf('}') + 1;
   if (start === -1 || end <= 0) throw new Error('No JSON found in AI response');
   let jsonStr = cleaned.slice(start, end);
+  // Fix trailing commas before ] or }
   jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1');
+  // Fix single quotes used as JSON strings
+  jsonStr = jsonStr.replace(/'/g, "'");
   try {
     return JSON.parse(jsonStr);
-  } catch {
-    // Last resort: try to fix unescaped quotes in string values
-    jsonStr = jsonStr.replace(/"([^"]*?)"/g, (full, inner) => {
-      if (inner.includes(':') || inner.includes(',')) return full;
-      return `"${inner.replace(/"/g, '\\"')}"`;
+  } catch (e) {
+    // Try fixing common issues: control characters in strings
+    jsonStr = jsonStr.replace(/[\x00-\x1F\x7F]/g, (ch) => {
+      if (ch === '\n') return '\\n';
+      if (ch === '\r') return '\\r';
+      if (ch === '\t') return '\\t';
+      return '';
     });
-    return JSON.parse(jsonStr);
+    try {
+      return JSON.parse(jsonStr);
+    } catch {
+      throw e; // throw original error
+    }
   }
 }
 
 /* ─── STAGE 1: SCOUT ─── */
 async function stageScout(supabase: Supabase, runId: string, channel: Channel) {
+  currentStage = 'scout';
   await updateRun(supabase, runId, { current_stage: 'scout' });
   await log(supabase, runId, 'scout', 'info', `Scouting trending topics for "${channel.name}"...`);
 
@@ -131,7 +147,8 @@ Generate 5 trending video topic ideas that would perform well right now. For eac
 - Estimated appeal score (0-100)
 - Source inspiration (Reddit, news, viral trend, etc.)
 
-Return ONLY valid JSON (no trailing commas, no markdown): [{"title":"...","hook":"...","trending_reason":"...","score":85,"source":"..."}]`;
+IMPORTANT: Return ONLY a JSON array. No markdown fences, no explanation, no trailing commas.
+Format: [{"title":"...","hook":"...","trending_reason":"...","score":85,"source":"..."}]`;
 
   const raw = await pipelineGenerate(prompt);
   await log(supabase, runId, 'scout', 'info', `Gemini returned ${raw.length} chars`, { preview: raw.slice(0, 300) });
@@ -144,7 +161,11 @@ Return ONLY valid JSON (no trailing commas, no markdown): [{"title":"...","hook"
     throw parseErr;
   }
 
-  topics.sort((a, b) => b.score - a.score);
+  if (!Array.isArray(topics) || topics.length === 0) {
+    throw new Error('Scout returned no topics');
+  }
+
+  topics.sort((a, b) => (b.score || 0) - (a.score || 0));
 
   await log(supabase, runId, 'scout', 'success', `Found ${topics.length} topics. Top: "${topics[0]?.title}"`, { topics });
 
@@ -158,6 +179,7 @@ async function stageResearch(
   channel: Channel,
   topic: { title: string; hook: string }
 ) {
+  currentStage = 'research';
   await updateRun(supabase, runId, { current_stage: 'research', topic_title: topic.title });
   await log(supabase, runId, 'research', 'info', `Researching: "${topic.title}"...`);
 
@@ -178,7 +200,8 @@ Create a detailed research brief:
 6. SEO keywords (10-15 terms)
 7. Thumbnail concept (text overlay + visual description)
 
-Return ONLY valid JSON (no trailing commas, no markdown): {"arc":{"setup":"...","rising":"...","climax":"...","resolution":"..."},"facts":["..."],"emotional_beats":["..."],"broll_keywords":["..."],"music_progression":["..."],"seo_keywords":["..."],"thumbnail":{"text":"...","visual":"..."}}`;
+IMPORTANT: Return ONLY a JSON object. No markdown fences, no explanation, no trailing commas.
+Format: {"arc":{"setup":"...","rising":"...","climax":"...","resolution":"..."},"facts":["..."],"emotional_beats":["..."],"broll_keywords":["..."],"music_progression":["..."],"seo_keywords":["..."],"thumbnail":{"text":"...","visual":"..."}}`;
 
   const raw = await pipelineGenerate(prompt);
   const research = parseJSON(raw) as Record<string, unknown>;
@@ -196,6 +219,7 @@ async function stageScript(
   topic: { title: string; hook: string },
   research: Record<string, unknown>
 ) {
+  currentStage = 'script';
   await updateRun(supabase, runId, { current_stage: 'script' });
   await log(supabase, runId, 'script', 'info', 'Writing narration script...');
 
@@ -226,7 +250,9 @@ Also include:
 
 The script should be conversational, immersive, and keep the viewer hooked. No filler.
 
-Return ONLY valid JSON (no trailing commas, no markdown): {"title":"...","description":"YouTube description with SEO keywords","tags":["..."],"script":"full script text with markers","word_count":1500,"estimated_duration":"10:30"}`;
+IMPORTANT: Return ONLY a JSON object. No markdown fences, no explanation, no trailing commas.
+Escape all newlines in the script string as \\n.
+Format: {"title":"...","description":"YouTube description with SEO keywords","tags":["..."],"script":"full script text with markers","word_count":1500,"estimated_duration":"10:30"}`;
 
   const raw = await pipelineGenerate(prompt);
   const script = parseJSON(raw) as Record<string, unknown>;
@@ -244,6 +270,7 @@ async function stageVoice(
   script: Record<string, unknown>,
   userId: string
 ) {
+  currentStage = 'avatar';
   await updateRun(supabase, runId, { current_stage: 'avatar' });
   await log(supabase, runId, 'avatar', 'info', 'Generating voice narration...');
 
@@ -264,6 +291,7 @@ async function stageVoice(
   // Strip markers from script for clean narration
   const rawScript = String(script.script || '');
   const cleanText = rawScript
+    .replace(/\\n/g, '\n') // unescape literal \n from JSON
     .replace(/\[(HOOK|INTRO|MAIN|CLIMAX|RESOLUTION|CTA|PAUSE)\]/g, '')
     .replace(/\[SFX:[^\]]*\]/g, '')
     .replace(/\[MUSIC:[^\]]*\]/g, '')
@@ -278,17 +306,29 @@ async function stageVoice(
 
   await log(supabase, runId, 'avatar', 'info', `Generating ${cleanText.length} chars with voice "${voiceId}"...`);
 
-  // ElevenLabs has a 5000 char limit per request — split if needed
+  // ElevenLabs: split at ~4500 chars per request
   const chunks: string[] = [];
   const MAX_CHARS = 4500;
   if (cleanText.length <= MAX_CHARS) {
     chunks.push(cleanText);
   } else {
-    // Split on paragraph breaks
     const paragraphs = cleanText.split(/\n\n+/);
     let current = '';
     for (const p of paragraphs) {
-      if ((current + '\n\n' + p).length > MAX_CHARS && current.length > 0) {
+      // Handle single paragraphs longer than MAX_CHARS
+      if (p.length > MAX_CHARS) {
+        if (current.trim()) { chunks.push(current.trim()); current = ''; }
+        // Split long paragraph on sentence boundaries
+        const sentences = p.match(/[^.!?]+[.!?]+/g) || [p];
+        for (const s of sentences) {
+          if ((current + ' ' + s).length > MAX_CHARS && current.length > 0) {
+            chunks.push(current.trim());
+            current = s;
+          } else {
+            current = current ? current + ' ' + s : s;
+          }
+        }
+      } else if ((current + '\n\n' + p).length > MAX_CHARS && current.length > 0) {
         chunks.push(current.trim());
         current = p;
       } else {
@@ -317,10 +357,10 @@ async function stageVoice(
       },
     });
     audioBuffers.push(buffer);
-    await log(supabase, runId, 'avatar', 'info', `Chunk ${i + 1}/${chunks.length} done (${buffer.length} bytes)`);
+    await log(supabase, runId, 'avatar', 'info', `Chunk ${i + 1}/${chunks.length} done (${(buffer.length / 1024).toFixed(0)}KB)`);
   }
 
-  // Concatenate audio buffers (simple MP3 concat works for MP3 files)
+  // Concatenate audio buffers
   const fullAudio = Buffer.concat(audioBuffers);
 
   // Upload to Supabase Storage
@@ -353,8 +393,14 @@ async function stageThumbnail(
   topic: { title: string },
   research: Record<string, unknown>
 ) {
+  currentStage = 'editor';
   await updateRun(supabase, runId, { current_stage: 'editor' });
   await log(supabase, runId, 'editor', 'info', 'Generating thumbnail...');
+
+  if (!GEMINI_KEY) {
+    await log(supabase, runId, 'editor', 'error', 'No GEMINI_API_KEY — skipping thumbnail');
+    return null;
+  }
 
   const thumbnail = research.thumbnail as { text?: string; visual?: string } | undefined;
   const thumbText = thumbnail?.text || topic.title;
@@ -365,7 +411,7 @@ Title text on the thumbnail: "${thumbText}"
 Visual style: ${thumbVisual}
 Channel tone: ${channel.tone}
 Make it eye-catching, high contrast, dramatic lighting. The text should be bold and readable.
-Style: cinematic, dark atmosphere, 16:9 aspect ratio, YouTube thumbnail quality.`;
+Style: cinematic, dark atmosphere, YouTube thumbnail quality.`;
 
   try {
     const images = await geminiGenerateImage({
@@ -422,14 +468,15 @@ async function stagePublish(
     thumbnailUrl: string | null;
   }
 ) {
+  currentStage = 'publisher';
   await updateRun(supabase, runId, { current_stage: 'publisher' });
   await log(supabase, runId, 'publisher', 'info', 'Saving pipeline output...');
 
   const topTopic = data.topics[0];
 
-  // Save all topics to scouted_topics
+  // Save all topics to scouted_topics (use insert, ignore duplicates)
   for (const topic of data.topics) {
-    await supabase.from('scouted_topics').upsert({
+    const { error: insertErr } = await supabase.from('scouted_topics').insert({
       channel_id: channel.id,
       run_id: runId,
       title: topic.title,
@@ -442,7 +489,11 @@ async function stagePublish(
       reasoning: topic.trending_reason,
       status: topic === topTopic ? 'approved' : 'pending',
       metadata: {},
-    }, { onConflict: 'run_id,title' });
+    });
+    // Log but don't fail on duplicate
+    if (insertErr) {
+      await log(supabase, runId, 'publisher', 'info', `Topic insert note: ${insertErr.message}`);
+    }
   }
 
   await log(supabase, runId, 'publisher', 'info', `Saved ${data.topics.length} topics to feed`);
@@ -550,7 +601,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const msg = (err as Error).message;
     await updateRun(supabase, runId, { status: 'failed', error: msg, completed_at: new Date().toISOString() });
-    await log(supabase, runId, run.current_stage || 'unknown', 'error', msg);
+    await log(supabase, runId, currentStage, 'error', msg);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { after } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
 export async function GET(req: NextRequest) {
@@ -68,13 +69,17 @@ export async function POST(req: NextRequest) {
 
     if (error) throw error;
 
-    // Fire-and-forget: trigger pipeline execution
+    // Trigger pipeline execution after response is sent
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://blais-social-engine.vercel.app';
-    fetch(`${appUrl}/api/pipeline/execute`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ runId: run.id }),
-    }).catch(() => {}); // Don't await — let it run in background
+    after(async () => {
+      try {
+        await fetch(`${appUrl}/api/pipeline/execute`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ runId: run.id }),
+        });
+      } catch { /* execute route handles its own errors */ }
+    });
 
     return NextResponse.json({ run }, { status: 201 });
   } catch (err) {
