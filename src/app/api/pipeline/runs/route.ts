@@ -68,6 +68,14 @@ export async function POST(req: NextRequest) {
 
     if (error) throw error;
 
+    // Fire-and-forget: trigger pipeline execution
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://blais-social-engine.vercel.app';
+    fetch(`${appUrl}/api/pipeline/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ runId: run.id }),
+    }).catch(() => {}); // Don't await — let it run in background
+
     return NextResponse.json({ run }, { status: 201 });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
