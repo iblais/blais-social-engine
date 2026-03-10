@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { useBrandAccounts } from '@/lib/hooks/use-brand-accounts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,7 +11,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
-import { Sparkles, Copy, RotateCcw, Save, Check } from 'lucide-react';
+import { Sparkles, Copy, RotateCcw, Save, Check, ExternalLink } from 'lucide-react';
+import Link from 'next/link';
 
 export default function AICaptionsPage() {
   const [topic, setTopic] = useState('');
@@ -26,6 +28,14 @@ export default function AICaptionsPage() {
   const [savedCaptions, setSavedCaptions] = useState<Set<string>>(new Set());
   const [savingAll, setSavingAll] = useState(false);
   const supabase = createClient();
+  const { activeBrandId } = useBrandAccounts();
+  const [activeBrand, setActiveBrand] = useState<{ name: string; ai_instructions: string | null } | null>(null);
+
+  useEffect(() => {
+    if (!activeBrandId) { setActiveBrand(null); return; }
+    supabase.from('brands').select('name, ai_instructions').eq('id', activeBrandId).single()
+      .then(({ data }) => setActiveBrand(data));
+  }, [activeBrandId, supabase]);
 
   async function generate() {
     if (!topic.trim()) { toast.error('Enter a topic'); return; }
@@ -34,7 +44,7 @@ export default function AICaptionsPage() {
       const res = await fetch('/api/ai/caption', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic, tone, platform, brandVoice, includeHashtags, includeEmojis, includeCTA }),
+        body: JSON.stringify({ topic, tone, platform, brandVoice, includeHashtags, includeEmojis, includeCTA, brandId: activeBrandId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -143,9 +153,29 @@ export default function AICaptionsPage() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Brand Voice (optional)</Label>
-                <Input value={brandVoice} onChange={e => setBrandVoice(e.target.value)}
-                  placeholder="e.g. Luxury, minimalist, Gen Z slang..." />
+                <Label>Brand Voice</Label>
+                {activeBrand?.ai_instructions ? (
+                  <div className="flex items-center gap-2 p-2 bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-md">
+                    <Check className="h-4 w-4 text-green-600 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-green-700 dark:text-green-400">{activeBrand.name} voice active</p>
+                      <p className="text-xs text-green-600/80 dark:text-green-500/80 truncate">{activeBrand.ai_instructions.substring(0, 60)}...</p>
+                    </div>
+                    <Link href="/settings/brand-voice" className="shrink-0">
+                      <ExternalLink className="h-3.5 w-3.5 text-green-600" />
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Input value={brandVoice} onChange={e => setBrandVoice(e.target.value)}
+                      placeholder="e.g. Luxury, minimalist, Gen Z slang..." />
+                    {activeBrandId && (
+                      <p className="text-xs text-muted-foreground">
+                        <Link href="/settings/brand-voice" className="underline hover:text-foreground">Set up Brand Voice</Link> for this brand to auto-apply instructions every time.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">

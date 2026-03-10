@@ -49,7 +49,7 @@ export default function ComposePage() {
   // Which platform preview is shown
   const [previewPlatform, setPreviewPlatform] = useState<string>('instagram');
 
-  const { accounts: brandAccounts } = useBrandAccounts();
+  const { accounts: brandAccounts, activeBrandId } = useBrandAccounts();
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
@@ -217,6 +217,7 @@ export default function ComposePage() {
           includeEmojis: true,
           includeCTA: true,
           images: imageData.length ? imageData : undefined,
+          brandId: activeBrandId,
         }),
       });
       const data = await res.json();

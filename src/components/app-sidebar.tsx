@@ -91,6 +91,7 @@ const productionNav = [
 
 const systemNav = [
   { title: 'Accounts', href: '/settings/accounts', icon: Users },
+  { title: 'Brand Voice', href: '/settings/brand-voice', icon: Sparkles },
   { title: 'API Keys', href: '/settings/general', icon: Key },
 ];
 
