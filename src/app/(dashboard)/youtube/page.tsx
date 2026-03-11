@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -67,7 +67,12 @@ function VolumeBadge({ volume }: { volume: string }) {
 
 export default function YouTubeStudioPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<Tab>('titles');
+  const searchParams = useSearchParams();
+
+  const activeTab = (searchParams.get('tab') as Tab) || 'titles';
+  function setActiveTab(tab: Tab) {
+    router.replace(`/youtube?tab=${tab}`);
+  }
   const [loading, setLoading] = useState(false);
 
   // Titles state

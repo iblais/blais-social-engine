@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -62,11 +62,26 @@ const platformLabels: Record<string, string> = {
 
 export default function QueuePage() {
   const [posts, setPosts] = useState<PostRow[]>([]);
-  const [activeTab, setActiveTab] = useState<string>('all');
-  const [platformFilter, setPlatformFilter] = useState<string>('all');
   const { accountIds, activeBrandId } = useBrandAccounts();
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Derive tab + platform from URL — survives refresh and back navigation
+  const activeTab = searchParams.get('tab') || 'all';
+  const platformFilter = searchParams.get('platform') || 'all';
+
+  function setActiveTab(tab: string) {
+    const p = new URLSearchParams(searchParams.toString());
+    tab === 'all' ? p.delete('tab') : p.set('tab', tab);
+    router.replace(`/queue${p.toString() ? '?' + p.toString() : ''}`);
+  }
+
+  function setPlatformFilter(platform: string) {
+    const p = new URLSearchParams(searchParams.toString());
+    platform === 'all' ? p.delete('platform') : p.set('platform', platform);
+    router.replace(`/queue${p.toString() ? '?' + p.toString() : ''}`);
+  }
 
   const loadPosts = useCallback(async () => {
     if (activeBrandId && !accountIds.length) return; // wait for accounts to load

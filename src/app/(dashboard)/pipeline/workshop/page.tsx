@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -285,7 +286,12 @@ type TabType = 'command-center' | 'topics' | 'scripts' | 'preview' | 'channels';
 // ============================================================
 
 export default function PipelineWorkshopPage() {
-  const [activeTab, setActiveTab] = useState<TabType>('command-center');
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const activeTab = (searchParams.get('tab') as TabType) || 'command-center';
+  function setActiveTab(tab: TabType | string) {
+    router.replace(`/pipeline/workshop?tab=${tab}`);
+  }
   const [channels, setChannels] = useState<PipelineChannel[]>([]);
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [topics, setTopics] = useState<ScoutedTopic[]>([]);
