@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { ImagePlus, Clock, Save, Send, Trash2, ArrowLeft, Check, Sparkles } from 'lucide-react';
+import { ImagePlus, Clock, Save, Send, Trash2, ArrowLeft, Check, Sparkles, Download } from 'lucide-react';
 import type { SocialAccount, PostMedia } from '@/types/database';
 import { useBrandAccounts } from '@/lib/hooks/use-brand-accounts';
 import { parseDate } from '@/lib/utils';
@@ -562,9 +562,33 @@ export default function ComposePage() {
           {mediaPreviews.length > 0 && (
             <Card>
               <CardContent className="pt-4">
+                {mediaPreviews.length > 1 && (
+                  <div className="flex justify-end mb-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs px-2"
+                      onClick={async () => {
+                        for (let i = 0; i < mediaPreviews.length; i++) {
+                          const src = mediaPreviews[i];
+                          const res = await fetch(src);
+                          const blob = await res.blob();
+                          const ext = isVideoPreview(i) ? 'mp4' : 'jpg';
+                          const a = document.createElement('a');
+                          a.href = URL.createObjectURL(blob);
+                          a.download = `media_${i + 1}.${ext}`;
+                          a.click();
+                          URL.revokeObjectURL(a.href);
+                        }
+                      }}
+                    >
+                      <Download className="h-3 w-3 mr-1" />Download All
+                    </Button>
+                  </div>
+                )}
                 <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
                   {mediaPreviews.map((src, i) => (
-                    <div key={i} className="relative aspect-square rounded-lg overflow-hidden border">
+                    <div key={i} className="relative group aspect-square rounded-lg overflow-hidden border">
                       {isVideoPreview(i) ? (
                         <video src={src} className="object-cover w-full h-full" muted playsInline />
                       ) : (
@@ -575,6 +599,21 @@ export default function ComposePage() {
                         className="absolute top-1 right-1 bg-black/60 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-black/80"
                       >
                         &times;
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const res = await fetch(src);
+                          const blob = await res.blob();
+                          const ext = isVideoPreview(i) ? 'mp4' : 'jpg';
+                          const a = document.createElement('a');
+                          a.href = URL.createObjectURL(blob);
+                          a.download = `media_${i + 1}.${ext}`;
+                          a.click();
+                          URL.revokeObjectURL(a.href);
+                        }}
+                        className="absolute bottom-1 right-1 bg-black/60 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80"
+                      >
+                        <Download className="h-3 w-3" />
                       </button>
                     </div>
                   ))}

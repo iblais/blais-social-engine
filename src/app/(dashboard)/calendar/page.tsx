@@ -19,7 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ChevronLeft, ChevronRight, Plus, Pencil, Clock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Pencil, Clock, Download } from 'lucide-react';
 import {
   startOfMonth,
   endOfMonth,
@@ -586,16 +586,56 @@ export default function CalendarPage() {
 
               {selectedPost.post_media && selectedPost.post_media.length > 0 && (
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-2">
-                    Media ({selectedPost.post_media.length})
-                  </p>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Media ({selectedPost.post_media.length})
+                    </p>
+                    {selectedPost.post_media.length > 1 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-xs px-2"
+                        onClick={async () => {
+                          const sorted = [...selectedPost.post_media!].sort((a, b) => a.sort_order - b.sort_order);
+                          for (let i = 0; i < sorted.length; i++) {
+                            const m = sorted[i];
+                            const res = await fetch(m.media_url);
+                            const blob = await res.blob();
+                            const ext = m.media_type === 'video' ? 'mp4' : 'jpg';
+                            const a = document.createElement('a');
+                            a.href = URL.createObjectURL(blob);
+                            a.download = `media_${i + 1}.${ext}`;
+                            a.click();
+                            URL.revokeObjectURL(a.href);
+                          }
+                        }}
+                      >
+                        <Download className="h-3 w-3 mr-1" />Download All
+                      </Button>
+                    )}
+                  </div>
                   <div className="grid grid-cols-4 gap-2">
                     {selectedPost.post_media
                       .sort((a, b) => a.sort_order - b.sort_order)
                       .slice(0, 8)
-                      .map((m) => (
-                        <div key={m.id} className="aspect-square rounded-md overflow-hidden border bg-muted">
+                      .map((m, i) => (
+                        <div key={m.id} className="relative group aspect-square rounded-md overflow-hidden border bg-muted">
                           <img src={m.media_url} alt="" className="w-full h-full object-cover" />
+                          <button
+                            onClick={async () => {
+                              const res = await fetch(m.media_url);
+                              const blob = await res.blob();
+                              const ext = m.media_type === 'video' ? 'mp4' : 'jpg';
+                              const a = document.createElement('a');
+                              a.href = URL.createObjectURL(blob);
+                              a.download = `media_${i + 1}.${ext}`;
+                              a.click();
+                              URL.revokeObjectURL(a.href);
+                            }}
+                            className="absolute bottom-1 right-1 bg-black/60 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80"
+                          >
+                            <Download className="h-3 w-3" />
+                          </button>
                         </div>
                       ))}
                   </div>
