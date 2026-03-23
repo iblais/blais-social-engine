@@ -11,6 +11,7 @@ interface YouTubeUploadParams {
   privacyStatus?: 'public' | 'unlisted' | 'private';
   tags?: string[];
   categoryId?: string;
+  madeForKids?: boolean;
 }
 
 interface UseYouTubeUploadReturn {
@@ -39,6 +40,7 @@ export function useYouTubeUpload(): UseYouTubeUploadReturn {
       privacyStatus = 'public',
       tags = [],
       categoryId = '22',
+      madeForKids = false,
     } = params;
 
     setUploading(true);
@@ -74,7 +76,7 @@ export function useYouTubeUpload(): UseYouTubeUploadReturn {
         },
         status: {
           privacyStatus,
-          selfDeclaredMadeForKids: false,
+          selfDeclaredMadeForKids: madeForKids,
         },
       };
 

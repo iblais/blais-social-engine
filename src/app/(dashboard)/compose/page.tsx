@@ -44,6 +44,15 @@ export default function ComposePage() {
   const [uploadProgress, setUploadProgress] = useState('');
   const { uploadToYouTube, progress: ytProgress, uploading: ytUploading } = useYouTubeUpload();
 
+  // YouTube-specific fields
+  const [ytTitle, setYtTitle] = useState('');
+  const [ytDescription, setYtDescription] = useState('');
+  const [ytTags, setYtTags] = useState('');
+  const [ytVisibility, setYtVisibility] = useState<'public' | 'unlisted' | 'private'>('public');
+  const [ytCategory, setYtCategory] = useState('22');
+  const [ytMadeForKids, setYtMadeForKids] = useState(false);
+  const [ytPlaylistId, setYtPlaylistId] = useState('');
+
   // Multi-platform: which accounts are enabled for this post
   const [enabledAccountIds, setEnabledAccountIds] = useState<Set<string>>(new Set());
   // Per-platform post type
@@ -52,6 +61,7 @@ export default function ComposePage() {
   const [previewPlatform, setPreviewPlatform] = useState<string>('instagram');
 
   const { accounts: brandAccounts, activeBrandId } = useBrandAccounts();
+  const hasYouTubeEnabled = brandAccounts.some(a => a.platform === 'youtube' && enabledAccountIds.has(a.id));
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
@@ -359,12 +369,12 @@ export default function ComposePage() {
               continue;
             }
 
-            const lines = caption.split('\n');
-            const ytTitle = lines[0]?.slice(0, 100) || 'Untitled';
-            const ytDescription = lines.slice(1).join('\n').trim() || caption;
+            const finalYtTitle = ytTitle || caption.split('\n')[0]?.slice(0, 100) || 'Untitled';
+            const finalYtDesc = ytDescription || caption.split('\n').slice(1).join('\n').trim() || caption;
             const isShort = (postTypes[accId] || 'video') === 'short';
+            const parsedTags = ytTags ? ytTags.split(',').map(t => t.trim()).filter(Boolean) : [];
             // For scheduled posts, upload as private and flip to public later
-            const ytPrivacy = status === 'scheduled' ? 'private' : 'public';
+            const uploadPrivacy = status === 'scheduled' ? 'private' : ytVisibility;
 
             setUploadProgress(`Uploading to YouTube${status === 'scheduled' ? ' (private until scheduled time)' : ''}...`);
 
@@ -372,10 +382,12 @@ export default function ComposePage() {
               const videoId = await uploadToYouTube({
                 file: videoFile,
                 accountId: accId,
-                title: ytTitle,
-                description: ytDescription,
+                title: finalYtTitle,
+                description: finalYtDesc,
                 isShort,
-                privacyStatus: ytPrivacy,
+                privacyStatus: uploadPrivacy,
+                tags: parsedTags,
+                categoryId: ytCategory,
               });
 
               // Create post record marked as posted (or scheduled if private)
@@ -630,6 +642,115 @@ export default function ComposePage() {
               />
             </CardContent>
           </Card>
+
+          {/* YouTube Details (shown when YouTube account is enabled) */}
+          {hasYouTubeEnabled && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-red-600 text-white text-[10px] font-bold">YT</span>
+                  YouTube Details
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Title (required)</Label>
+                  <Input
+                    placeholder="Video title..."
+                    value={ytTitle}
+                    onChange={(e) => setYtTitle(e.target.value)}
+                    maxLength={100}
+                  />
+                  <span className="text-[10px] text-muted-foreground">{ytTitle.length}/100</span>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Description</Label>
+                  <Textarea
+                    placeholder="Tell viewers about your video..."
+                    className="min-h-[120px] resize-y text-sm"
+                    value={ytDescription}
+                    onChange={(e) => setYtDescription(e.target.value)}
+                    maxLength={5000}
+                  />
+                  <span className="text-[10px] text-muted-foreground">{ytDescription.length}/5,000</span>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Tags (comma separated)</Label>
+                  <Input
+                    placeholder="print on demand, etsy tips, POD automation..."
+                    value={ytTags}
+                    onChange={(e) => setYtTags(e.target.value)}
+                    maxLength={500}
+                  />
+                  <span className="text-[10px] text-muted-foreground">
+                    {ytTags ? ytTags.split(',').filter(t => t.trim()).length : 0} tags
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Visibility</Label>
+                    <select
+                      value={ytVisibility}
+                      onChange={(e) => setYtVisibility(e.target.value as 'public' | 'unlisted' | 'private')}
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    >
+                      <option value="public">Public</option>
+                      <option value="unlisted">Unlisted</option>
+                      <option value="private">Private</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Category</Label>
+                    <select
+                      value={ytCategory}
+                      onChange={(e) => setYtCategory(e.target.value)}
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    >
+                      <option value="1">Film & Animation</option>
+                      <option value="2">Autos & Vehicles</option>
+                      <option value="10">Music</option>
+                      <option value="15">Pets & Animals</option>
+                      <option value="17">Sports</option>
+                      <option value="19">Travel & Events</option>
+                      <option value="20">Gaming</option>
+                      <option value="22">People & Blogs</option>
+                      <option value="23">Comedy</option>
+                      <option value="24">Entertainment</option>
+                      <option value="25">News & Politics</option>
+                      <option value="26">Howto & Style</option>
+                      <option value="27">Education</option>
+                      <option value="28">Science & Technology</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Playlist ID (optional)</Label>
+                  <Input
+                    placeholder="PLxxxxxxxxxxxxxxxx"
+                    value={ytPlaylistId}
+                    onChange={(e) => setYtPlaylistId(e.target.value)}
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="ytMadeForKids"
+                    checked={ytMadeForKids}
+                    onChange={(e) => setYtMadeForKids(e.target.checked)}
+                    className="rounded border-input"
+                  />
+                  <Label htmlFor="ytMadeForKids" className="text-xs text-muted-foreground cursor-pointer">
+                    Made for kids (COPPA)
+                  </Label>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Media grid */}
           {mediaPreviews.length > 0 && (
