@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { ImagePlus, Clock, Save, Send, Trash2, ArrowLeft, Check, Sparkles, Download } from 'lucide-react';
 import type { SocialAccount, PostMedia } from '@/types/database';
 import { useBrandAccounts } from '@/lib/hooks/use-brand-accounts';
+import { useYouTubeUpload } from '@/lib/hooks/use-youtube-upload';
 import { parseDate } from '@/lib/utils';
 
 // Platform config
@@ -41,6 +42,7 @@ export default function ComposePage() {
   const [aiCaptionLoading, setAiCaptionLoading] = useState(false);
   const [firstComment, setFirstComment] = useState('');
   const [uploadProgress, setUploadProgress] = useState('');
+  const { uploadToYouTube, progress: ytProgress, uploading: ytUploading } = useYouTubeUpload();
 
   // Multi-platform: which accounts are enabled for this post
   const [enabledAccountIds, setEnabledAccountIds] = useState<Set<string>>(new Set());
@@ -342,37 +344,108 @@ export default function ComposePage() {
       } else {
         // Create one post per enabled account
         let created = 0;
+        const hasVideoFile = mediaFiles.some(f => f.type.startsWith('video'));
+        let needsCronPublish = false;
+
         for (const accId of enabled) {
           const acc = brandAccounts.find((a) => a.id === accId);
           if (!acc) continue;
 
-          const { data: post, error: postErr } = await supabase.from('posts').insert({
-            user_id: user.id,
-            account_id: accId,
-            platform: acc.platform,
-            caption,
-            first_comment: firstComment || null,
-            media_type: getMediaType(acc.platform),
-            post_type: postTypes[accId] || 'post',
-            status: dbStatus,
-            scheduled_at: scheduledIso,
-          }).select('id').single();
+          // YouTube with video: upload directly from browser
+          if (acc.platform === 'youtube' && hasVideoFile) {
+            const videoFile = mediaFiles.find(f => f.type.startsWith('video'));
+            if (!videoFile) {
+              toast.error('YouTube requires a video file');
+              continue;
+            }
 
-          if (postErr) {
-            toast.error(`Failed to save for ${acc.platform} (${acc.username}): ${postErr.message}`);
-            continue;
+            const lines = caption.split('\n');
+            const ytTitle = lines[0]?.slice(0, 100) || 'Untitled';
+            const ytDescription = lines.slice(1).join('\n').trim() || caption;
+            const isShort = (postTypes[accId] || 'video') === 'short';
+            // For scheduled posts, upload as private and flip to public later
+            const ytPrivacy = status === 'scheduled' ? 'private' : 'public';
+
+            setUploadProgress(`Uploading to YouTube${status === 'scheduled' ? ' (private until scheduled time)' : ''}...`);
+
+            try {
+              const videoId = await uploadToYouTube({
+                file: videoFile,
+                accountId: accId,
+                title: ytTitle,
+                description: ytDescription,
+                isShort,
+                privacyStatus: ytPrivacy,
+              });
+
+              // Create post record marked as posted (or scheduled if private)
+              const ytStatus = status === 'scheduled' ? 'scheduled' : 'posted';
+              const { data: post, error: postErr } = await supabase.from('posts').insert({
+                user_id: user.id,
+                account_id: accId,
+                platform: acc.platform,
+                caption,
+                first_comment: firstComment || null,
+                media_type: 'video',
+                post_type: isShort ? 'short' : 'video',
+                status: ytStatus,
+                scheduled_at: scheduledIso,
+                published_at: ytStatus === 'posted' ? new Date().toISOString() : null,
+                platform_post_id: videoId,
+              }).select('id').single();
+
+              if (postErr) {
+                toast.error(`Failed to save YouTube post record: ${postErr.message}`);
+                continue;
+              }
+
+              // Link the video as post_media for reference
+              await supabase.from('post_media').insert({
+                post_id: post.id,
+                media_url: `https://youtube.com/watch?v=${videoId}`,
+                media_type: 'video',
+                sort_order: 0,
+              });
+
+              toast.success(status === 'scheduled'
+                ? `Uploaded to YouTube (private). Will go public at scheduled time.`
+                : `Published to YouTube! Video ID: ${videoId}`);
+              created++;
+            } catch (err) {
+              toast.error(`YouTube upload failed: ${(err as Error).message}`);
+              continue;
+            }
+          } else {
+            // All other platforms: standard flow
+            const { data: post, error: postErr } = await supabase.from('posts').insert({
+              user_id: user.id,
+              account_id: accId,
+              platform: acc.platform,
+              caption,
+              first_comment: firstComment || null,
+              media_type: getMediaType(acc.platform),
+              post_type: postTypes[accId] || 'post',
+              status: dbStatus,
+              scheduled_at: scheduledIso,
+            }).select('id').single();
+
+            if (postErr) {
+              toast.error(`Failed to save for ${acc.platform} (${acc.username}): ${postErr.message}`);
+              continue;
+            }
+
+            await linkMediaToPost(post.id, libraryMedia, 0);
+            await linkMediaToPost(post.id, uploadedMedia, libraryMedia.length);
+            created++;
+            if (status === 'now') needsCronPublish = true;
           }
-
-          await linkMediaToPost(post.id, libraryMedia, 0);
-          await linkMediaToPost(post.id, uploadedMedia, libraryMedia.length);
-          created++;
         }
 
         const verb = status === 'now' ? 'Posting now to' : status === 'scheduled' ? 'Scheduled to' : 'Saved to';
         toast.success(`${verb} ${created} platform${created !== 1 ? 's' : ''}!`);
       }
 
-      // If "Post Now", trigger posting immediately via server-side relay
+      // If "Post Now", trigger posting for non-YouTube platforms
       if (status === 'now') {
         setUploadProgress('Publishing...');
         try {
@@ -637,6 +710,16 @@ export default function ComposePage() {
             {loading && uploadProgress && (
               <p className="text-sm text-muted-foreground text-center animate-pulse">{uploadProgress}</p>
             )}
+            {ytUploading && (
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground text-center animate-pulse">
+                  Uploading to YouTube... {ytProgress}%
+                </p>
+                <div className="w-full bg-muted rounded-full h-2">
+                  <div className="bg-red-600 h-2 rounded-full transition-all" style={{ width: `${ytProgress}%` }} />
+                </div>
+              </div>
+            )}
             <div className="flex gap-2">
               <Button onClick={() => handleSubmit('now')} disabled={loading} className="flex-1 bg-green-600 hover:bg-green-700">
                 <Send className="h-4 w-4 mr-2" />
@@ -754,6 +837,16 @@ export default function ComposePage() {
           <div className="flex flex-col gap-2">
             {loading && uploadProgress && (
               <p className="text-sm text-muted-foreground text-center animate-pulse">{uploadProgress}</p>
+            )}
+            {ytUploading && (
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground text-center animate-pulse">
+                  Uploading to YouTube... {ytProgress}%
+                </p>
+                <div className="w-full bg-muted rounded-full h-2">
+                  <div className="bg-red-600 h-2 rounded-full transition-all" style={{ width: `${ytProgress}%` }} />
+                </div>
+              </div>
             )}
             <Button onClick={() => handleSubmit('now')} disabled={loading} className="w-full bg-green-600 hover:bg-green-700">
               <Send className="h-4 w-4 mr-2" />
